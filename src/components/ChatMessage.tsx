@@ -1,5 +1,7 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
-import { User, Loader2, CheckCircle, AlertOctagon } from "lucide-react";
+import { User, Loader2, CheckCircle, AlertOctagon, ExternalLink, Copy, Check } from "lucide-react";
 import CloudPilotLogo from "@/components/CloudPilotLogo";
 
 export type MessageRole = "user" | "assistant" | "system";
@@ -19,6 +21,17 @@ interface ChatMessageProps {
 
 const ChatMessage = ({ message }: ChatMessageProps) => {
   const isUser = message.role === "user";
+  const isComplete = message.status === "complete" && !isUser;
+  const [copied, setCopied] = useState(false);
+  const navigate = useNavigate();
+
+  const reportUrl = `${window.location.origin}/report/${message.id}`;
+
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(reportUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div className={`animate-fade-in-up flex gap-3 px-5 py-3 ${isUser ? "justify-end" : ""}`}>
@@ -73,23 +86,50 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 mt-2.5">
-          {message.status === "streaming" && (
-            <div className="flex items-center gap-1.5 text-terminal-dim">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              <span className="text-[10px] font-mono tracking-wider uppercase">Executing AWS queries...</span>
-            </div>
-          )}
-          {message.status === "complete" && !isUser && (
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <CheckCircle className="w-3 h-3 text-primary/60" />
-              <span className="text-[10px] font-mono">{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-            </div>
-          )}
-          {message.status === "error" && (
-            <div className="flex items-center gap-1.5 text-destructive">
-              <AlertOctagon className="w-3 h-3" />
-              <span className="text-[10px] font-mono">Error — check credentials and try again</span>
+        {/* Status row */}
+        <div className="flex items-center justify-between mt-2.5 gap-2">
+          <div className="flex items-center gap-1.5">
+            {message.status === "streaming" && (
+              <div className="flex items-center gap-1.5 text-terminal-dim">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span className="text-[10px] font-mono tracking-wider uppercase">Executing AWS queries...</span>
+              </div>
+            )}
+            {isComplete && (
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <CheckCircle className="w-3 h-3 text-primary/60" />
+                <span className="text-[10px] font-mono">
+                  {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </div>
+            )}
+            {message.status === "error" && (
+              <div className="flex items-center gap-1.5 text-destructive">
+                <AlertOctagon className="w-3 h-3" />
+                <span className="text-[10px] font-mono">Error — check credentials and try again</span>
+              </div>
+            )}
+          </div>
+
+          {/* Report actions — only on completed assistant messages */}
+          {isComplete && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => navigate(`/report/${message.id}`)}
+                className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/60 hover:text-primary transition-colors px-1.5 py-1 rounded hover:bg-primary/8"
+                title="View full report"
+              >
+                <ExternalLink className="w-3 h-3" />
+                View Report
+              </button>
+              <button
+                onClick={copyLink}
+                className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/60 hover:text-primary transition-colors px-1.5 py-1 rounded hover:bg-primary/8"
+                title="Copy report link"
+              >
+                {copied ? <Check className="w-3 h-3 text-primary" /> : <Copy className="w-3 h-3" />}
+                {copied ? "Copied" : "Copy Link"}
+              </button>
             </div>
           )}
         </div>

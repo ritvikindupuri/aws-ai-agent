@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import CloudPilotLogo from "@/components/CloudPilotLogo";
 import Index from "./pages/Index.tsx";
 import Auth from "./pages/Auth.tsx";
+import Report from "./pages/Report.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { useAuth } from "@/hooks/useAuth.ts";
 
@@ -36,7 +37,6 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 const AppRoutes = () => {
   const { user, loading } = useAuth();
-
   if (loading) return <LoadingScreen />;
 
   return (
@@ -47,6 +47,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Index />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/report/:messageId"
+        element={
+          <ProtectedRoute>
+            <Report />
           </ProtectedRoute>
         }
       />
