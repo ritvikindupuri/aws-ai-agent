@@ -7,7 +7,7 @@ import AwsCredentialsPanel, { type AwsCredentials } from "@/components/AwsCreden
 import FindingsPanel, { type Finding } from "@/components/FindingsPanel";
 import StatusBar from "@/components/StatusBar";
 import { useChat } from "@/hooks/useChat";
-import vigilLogo from "@/assets/vigil-logo.png";
+import cloudpilotLogo from "@/assets/cloudpilot-logo.svg";
 
 const ChatInterface = () => {
   const [input, setInput] = useState("");
@@ -42,12 +42,12 @@ const ChatInterface = () => {
       {/* Header */}
       <header className="flex items-center justify-between px-5 py-3 border-b border-border bg-card/80 backdrop-blur-sm">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/8 border border-primary/15 flex items-center justify-center overflow-hidden">
-            <img src={vigilLogo} alt="VIGIL" className="w-5 h-5 object-contain" />
+          <div className="w-10 h-10 rounded-lg bg-primary/8 border border-primary/15 flex items-center justify-center overflow-hidden text-primary">
+            <img src={cloudpilotLogo} alt="CloudPilot AI" className="w-6 h-6 object-contain" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-semibold text-foreground tracking-tight">VIGIL</h1>
+              <h1 className="text-base font-bold text-foreground tracking-tight">CloudPilot AI</h1>
               <span className="text-[9px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border tracking-wider">v0.1</span>
             </div>
             <p className="text-[10px] text-muted-foreground">AWS Security Intelligence Agent</p>
@@ -73,11 +73,11 @@ const ChatInterface = () => {
             {!hasMessages ? (
               <div className="flex flex-col items-center justify-center h-full px-6 py-12 max-w-xl mx-auto">
                 <div className="text-center space-y-5 mb-8">
-                  <div className="w-14 h-14 rounded-2xl bg-primary/8 border border-primary/15 flex items-center justify-center mx-auto glow-primary overflow-hidden">
-                    <img src={vigilLogo} alt="" className="w-8 h-8 object-contain" />
+                  <div className="w-20 h-20 rounded-2xl bg-primary/8 border border-primary/15 flex items-center justify-center mx-auto glow-primary overflow-hidden text-primary">
+                    <img src={cloudpilotLogo} alt="" className="w-14 h-14 object-contain" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-foreground tracking-tight mb-1">VIGIL</h2>
+                    <h2 className="text-2xl font-bold text-foreground tracking-tight mb-1">CloudPilot AI</h2>
                     <p className="text-xs text-muted-foreground leading-relaxed max-w-sm mx-auto">
                       AI-powered security operations for AWS. Configure your credentials, then audit, investigate, and remediate.
                     </p>

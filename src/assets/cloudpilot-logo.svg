@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <!-- Cloud Outline -->
+  <path d="M 30 70 C 18 70 12 60 15 50 C 10 40 20 28 35 32 C 40 20 60 15 70 30 C 85 28 95 40 90 52 C 95 65 85 70 75 70 Z"
+        fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Outer Compass Ring -->
+  <circle cx="50" cy="45" r="18" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4" />
+
+  <!-- Compass Needle Diamond -->
+  <polygon points="50,22 55,45 50,68 45,45" fill="currentColor" stroke="none"/>
+
+  <!-- Compass Center Dot -->
+  <circle cx="50" cy="45" r="3" fill="#ffffff" />
+</svg>

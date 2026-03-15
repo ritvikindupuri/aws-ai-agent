@@ -6,38 +6,38 @@
 
 @layer base {
   :root {
-    --background: 222 25% 6%;
-    --foreground: 210 15% 88%;
+    --background: 215 28% 13%; /* AWS Squid Ink */
+    --foreground: 210 15% 88%; /* Light text */
 
-    --card: 222 22% 9%;
+    --card: 215 28% 15%; /* Slightly lighter squid ink */
     --card-foreground: 210 15% 88%;
 
-    --popover: 222 22% 11%;
+    --popover: 215 28% 17%;
     --popover-foreground: 210 15% 88%;
 
-    --primary: 145 72% 44%;
-    --primary-foreground: 222 25% 6%;
+    --primary: 28 99% 54%; /* AWS Orange #FF9900 */
+    --primary-foreground: 0 0% 100%; /* White text on primary */
 
-    --secondary: 222 18% 13%;
+    --secondary: 215 22% 19%;
     --secondary-foreground: 210 12% 72%;
 
-    --muted: 222 16% 11%;
-    --muted-foreground: 215 10% 44%;
+    --muted: 215 22% 16%;
+    --muted-foreground: 215 10% 64%;
 
-    --accent: 187 65% 48%;
-    --accent-foreground: 222 25% 6%;
+    --accent: 28 99% 54%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 68% 52%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 222 14% 15%;
-    --input: 222 14% 15%;
-    --ring: 145 72% 44%;
+    --border: 215 20% 22%;
+    --input: 215 20% 22%;
+    --ring: 28 99% 54%;
 
     --radius: 0.5rem;
 
     --warning: 38 92% 50%;
-    --warning-foreground: 222 25% 6%;
+    --warning-foreground: 0 0% 100%;
 
     --info: 210 70% 55%;
     --info-foreground: 210 40% 98%;
@@ -47,20 +47,20 @@
     --severity-medium: 38 92% 50%;
     --severity-low: 210 70% 55%;
 
-    --terminal: 145 72% 44%;
-    --terminal-dim: 145 30% 30%;
-    --terminal-glow: 145 72% 44% / 0.12;
+    --terminal: 28 99% 54%; /* Map terminal glow/text to AWS Orange */
+    --terminal-dim: 28 80% 40%;
+    --terminal-glow: 28 99% 54% / 0.12;
 
-    --surface-elevated: 222 20% 12%;
+    --surface-elevated: 215 25% 18%;
 
-    --sidebar-background: 222 22% 7%;
+    --sidebar-background: 215 28% 11%;
     --sidebar-foreground: 210 12% 72%;
-    --sidebar-primary: 145 72% 44%;
-    --sidebar-primary-foreground: 222 25% 6%;
-    --sidebar-accent: 222 16% 13%;
+    --sidebar-primary: 28 99% 54%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 215 22% 16%;
     --sidebar-accent-foreground: 210 12% 72%;
-    --sidebar-border: 222 14% 15%;
-    --sidebar-ring: 145 72% 44%;
+    --sidebar-border: 215 20% 20%;
+    --sidebar-ring: 28 99% 54%;
   }
 }
 
