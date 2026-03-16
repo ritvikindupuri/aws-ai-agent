@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { User, Loader2, CheckCircle, AlertOctagon, ExternalLink, Copy, Check } from "lucide-react";
 import CloudPilotLogo from "@/components/CloudPilotLogo";
 
@@ -82,7 +83,7 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
 
             [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2
           ">
-            <ReactMarkdown>{message.content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
           </div>
         )}
 
