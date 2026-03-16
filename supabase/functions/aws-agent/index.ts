@@ -453,12 +453,18 @@ serve(async (req) => {
                 throw new Error(`Operation '${operation}' not found on ${service}. Check the operation name.`);
               }
 
-              const result = await client[args.operation](args.params || {}).promise();
+              const result = await client[operation](args.params || {}).promise();
+              
+              // Truncate very large responses to prevent context overflow
+              let resultStr = JSON.stringify(result);
+              if (resultStr.length > 100000) {
+                resultStr = resultStr.slice(0, 100000) + '... [TRUNCATED — response too large, narrow your query]';
+              }
 
               apiMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
-                content: JSON.stringify(result),
+                content: resultStr,
               });
             } catch (err: any) {
               console.error("[CloudPilot] AWS SDK Error:", err.message);
