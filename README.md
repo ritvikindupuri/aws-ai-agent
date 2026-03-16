@@ -47,6 +47,17 @@ sequenceDiagram
 - **Incident Response & Forensics**: Tools for live instance isolation, credential revocation, and forensic evidence preservation.
 - **Actionable Remediation Commands**: Generates exact, context-aware AWS CLI commands to remediate findings immediately.
 
+## Agent Security & Safety Mechanisms
+
+Given the power of executing live AWS API calls, CloudPilot AI implements multiple layers of security to protect your environment and ensure safe operations:
+
+- **Zero Simulation Tolerance:** The agent is strictly instructed to **never** fabricate or assume resource states. Every finding and analysis must be backed by a real AWS API response. If it doesn't have the data, it must call the API first.
+- **Service Allowlisting:** The agent is restricted to interacting only with a predefined list of security-relevant AWS services (e.g., IAM, S3, EC2, CloudTrail, GuardDuty). Attempting to call an unauthorized service is immediately blocked.
+- **Destructive Operation Blocklist:** Highly sensitive account-level operations—such as `closeAccount`, `leaveOrganization`, or `deleteOrganization`—are explicitly hardcoded to be blocked by the Edge Function, preventing irreversible damage.
+- **Strict Input Validation & Sanitization:** All user prompts, AWS regions, Access Keys, and Role ARNs undergo strict regex formatting checks and length sanitization to prevent prompt injection or buffer overflow attacks.
+- **Ephemeral Compute Isolation:** The agent logic runs securely within Supabase Edge Functions (Deno isolates). AWS SDK clients are instantiated per-request with localized credentials, guaranteeing zero global state pollution or cross-tenant credential exposure.
+- **Mandatory Simulation Cleanup:** If the agent creates test resources during an authorized attack simulation, it is forced to tag them (e.g., `cloudpilot-simulation=true`), track them, and provide the user an explicit prompt to automatically delete and clean up the environment via API calls.
+
 ---
 
 ## Tech Stack
