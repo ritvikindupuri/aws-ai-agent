@@ -4,7 +4,7 @@ Real-time AWS security operations. Connect your credentials to audit, investigat
 
 
 📚 **Read the full [Technical Documentation](TECHNICAL_DOCUMENTATION.md) for a comprehensive breakdown of the architecture, data flow, and codebase.**
-[View Technical Documentation](TECHNICAL_DOCUMENTATION.md)
+
 
 ---
 
@@ -64,21 +64,6 @@ Given the power of executing live AWS API calls, CloudPilot AI implements multip
 - **Ephemeral Compute Isolation:** The agent logic runs securely within Supabase Edge Functions (Deno isolates). AWS SDK clients are instantiated per-request with localized credentials, guaranteeing zero global state pollution or cross-tenant credential exposure.
 - **Mandatory Simulation Cleanup:** If the agent creates test resources during an authorized attack simulation, it is forced to tag them (e.g., `cloudpilot-simulation=true`), track them, and provide the user an explicit prompt to automatically delete and clean up the environment via API calls.
 
----
-
-## Tech Stack
-
-=======
-
-### Architecture Explanation
-
-1. **User Interaction**: The user accesses the React Frontend, inputs their AWS query (e.g., "Find exposed S3 buckets"), and provides their AWS credentials (either Access Keys or an AssumeRole ARN).
-2. **Request Handling**: The frontend securely sends the prompt and credentials to the Supabase Edge Function (`aws-agent`), which acts as the backend orchestrator.
-3. **AI Evaluation**: The Edge Function builds the system context (enforcing "zero simulation tolerance") and communicates with the AI Gateway powered by Google Gemini 3 Flash Preview.
-4. **AWS Integration**: When the AI determines it needs data, it requests a tool call to `execute_aws_api`. The Edge Function dynamically instantiates an AWS SDK client locally using the user's provided credentials and executes the requested API call against the user's real AWS account.
-5. **Synthesis & Streaming**: The real API responses are passed back to the AI model. The model synthesizes an executive summary, findings table, detailed analysis, and exact CLI remediation commands. The Edge Function then streams this synthesized response back to the React Frontend for real-time display.
-
----
 
 ## Key Features
 
