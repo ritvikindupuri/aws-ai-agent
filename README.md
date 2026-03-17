@@ -44,10 +44,14 @@ sequenceDiagram
 ## Key Features
 
 - **Live AWS API Execution**: Connect your credentials to audit, investigate, and remediate cloud infrastructure using real AWS API responses.
+- **Log Analyst & Threat Detector**: Parses and summarizes CloudTrail and CloudWatch logs while utilizing GuardDuty for anomaly and IOC pattern matching.
+- **IP Safety Checking & Automated Actions**: Identifies untrusted IPs based on WAF and EC2 security settings and automates their blocking, alongside revoking IAM credentials when a compromise is detected.
 - **Attack Simulation**: Authorized testing against your own account to discover privilege escalation paths, credential exposure, and lateral movement vectors.
 - **Compliance Scanning**: Automates mapping against major security frameworks including CIS AWS Foundations Benchmark, NIST 800-53, PCI-DSS v4.0, and ISO 27001.
 - **Incident Response & Forensics**: Tools for live instance isolation, credential revocation, and forensic evidence preservation.
+- **Task Automator**: Streamlines the execution of standard runbooks for rapid and effective issue remediation using real AWS APIs.
 - **Actionable Remediation Commands**: Generates exact, context-aware AWS CLI commands to remediate findings immediately.
+- **Reporting & Alerts Engine**: Features a comprehensive reporting suite generating HTML/Markdown output alongside checking severity-tiered alerting setups (Critical/High/Medium/Low via SNS/Lambda).
 
 ## Agent Security & Safety Mechanisms
 
@@ -144,3 +148,62 @@ To use CloudPilot AI, you need to provide it with access to your AWS account. We
 9. At the top of the summary page, copy the **ARN** (it will look like `arn:aws:iam::123456789012:role/CloudPilot-AuditRole`).
 10. Ensure the AWS credentials you provide to the application have the `sts:AssumeRole` permission for this specific Role ARN.
 11. Enter the Role ARN into the CloudPilot AI interface under the "Assume Role" tab.
+
+---
+
+## Understanding Agent Capabilities via IAM Roles
+
+The AI agent's power is strictly limited to the permissions of the AWS credentials you provide. It **cannot bypass** your IAM policy. Here is exactly what the agent can do based on the two most common role configurations:
+
+### Option 1: `SecurityAudit` (Read-Only)
+If you provide credentials with only the `SecurityAudit` managed policy, the agent **can**:
+- Audit S3 buckets, IAM posture, security groups, and EC2 instances.
+- Run CIS Benchmark, CloudTrail, GuardDuty, and Security Hub compliance checks.
+- Discover and map attack paths (e.g., privilege escalation vectors, lateral movement, network exposure).
+- Act as a Log Analyst (parse CloudTrail/CloudWatch) and Threat Detector (query GuardDuty/WAF findings).
+- Generate a Report Builder payload containing security findings.
+
+The agent **cannot** (and will receive an `AccessDenied` error if you ask it to):
+- Block malicious IPs.
+- Revoke IAM credentials.
+- Isolate instances or create forensic snapshots.
+- Execute any task automation or remediation commands that alter infrastructure.
+
+### Option 2: `AdministratorAccess` (Read/Write)
+If you provide credentials with the `AdministratorAccess` managed policy (or a custom policy with explicit write permissions), the agent can perform all the read-only tasks above, **plus it can execute automated actions**:
+- **Block Malicious IPs:** Automatically update WAF IP sets or NACLs.
+- **Revoke IAM:** Deactivate access keys and detach policies for compromised users.
+- **Incident Response:** Isolate EC2 instances by changing security groups and disabling IMDS, or create forensic EBS snapshots.
+- **Task Automator:** Execute exact AWS CLI remediation commands to close public buckets, enforce MFA, or harden IMDSv2.
+- **Email Engine:** Configure and send alerts via AWS SES.
+
+### Specific IAM Permissions for Automated Actions
+
+If you prefer to build a custom least-privilege role instead of using `AdministratorAccess`, executing automated remediation or alerting engines requires explicit write permissions:
+
+| Feature Capability | Required IAM Actions |
+|-------------------|----------------------|
+| **Log Analyst & Threat Detector** | `cloudtrail:LookupEvents`, `cloudwatch:GetMetricData`, `guardduty:GetFindings` |
+| **Block Malicious IPs** | `wafv2:UpdateIPSet`, `ec2:CreateNetworkAclEntry`, `ec2:ReplaceNetworkAclEntry` |
+| **Revoke IAM Credentials** | `iam:UpdateAccessKey`, `iam:DetachUserPolicy`, `iam:DeleteAccessKey` |
+| **Task Automator (Remediation)** | Varies per runbook (e.g., `s3:PutBucketPublicAccessBlock`, `ec2:RevokeSecurityGroupIngress`) |
+| **Email Alert Engine** | `ses:GetIdentityVerificationAttributes`, `ses:SendEmail`, `sns:ListSubscriptionsByTopic` |
+| **Audit Archive Verification** | `dynamodb:DescribeTable`, `s3:GetBucketObjectLockConfiguration` |
+
+---
+
+## Agent Limits: Maximum API Iterations
+
+If you receive the error: **`⚠️ Agent reached the maximum number of API iterations. The operation may be too broad — try narrowing your request to a specific service or resource.`**
+
+This means your prompt required the AI agent to make more than **15 sequential API requests (loops)** to gather the necessary data.
+
+**Why does this limit exist?**
+To protect your AWS account and prevent runaway LLM costs, the backend (`supabase/functions/aws-agent/index.ts`) enforces a strict `MAX_ITERATIONS = 15` limit per prompt. This stops the agent from falling into infinite loops or querying thousands of resources in massive AWS environments.
+
+**How to resolve it:**
+If you hit this limit, your query scope is too broad for the agent to finish in one request. You must narrow your prompt.
+
+* **Too broad (Will likely hit the limit in large accounts):** "Audit all my EC2 instances and all their security groups, then check all S3 buckets."
+* **Better (Narrow scope):** "Audit my EC2 instances in us-east-1." or "Check the security group rules for instance i-0abcd1234."
+* **Best:** Use specific ARNs, resource IDs, or individual services for complex commands (e.g. "Check the WAF IP sets and Network ACLs in my default VPC").
