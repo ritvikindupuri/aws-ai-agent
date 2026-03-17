@@ -92,7 +92,6 @@ Given the power of executing live AWS API calls, CloudPilot AI implements multip
 
 ## Tech Stack
 
->>>>>>> main
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn-ui, Framer Motion
 - **Backend / API:** Supabase Edge Functions (Deno)
 - **AI Model:** Google Gemini 3 Flash Preview (via Lovable AI Gateway)
