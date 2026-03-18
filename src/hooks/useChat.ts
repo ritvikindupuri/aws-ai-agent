@@ -199,7 +199,7 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
         setIsLoading(false);
       }
     },
-    [messages, conversationId]
+    [messages, conversationId, notificationEmail]
   );
 
   const clearMessages = useCallback(() => setMessages([]), []);
