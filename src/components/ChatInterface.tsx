@@ -92,22 +92,21 @@ const ChatInterface = () => {
     }
   };
 
-  const handleQuickAction = async (prompt: string) => {
-    if (!credentials) return;
-
-    let convId = currentConvId;
-    if (!convId && user) {
-      const title = prompt.length > 65 ? prompt.slice(0, 65) + "…" : prompt;
-      try {
-        const conv = await createConversation(title);
-        convId = conv?.id ?? null;
-        setCurrentConvId(convId);
-      } catch {
-        // continue without persistence
+  const handleQuickAction = (prompt: string) => {
+    setInput(prompt);
+    // Focus the textarea and auto-resize
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.style.height = "auto";
+        textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + "px";
       }
-    }
+    }, 0);
+  };
 
-    sendMessage(prompt, credentials, convId);
+  const handleSaveNotificationEmail = (email: string) => {
+    setNotificationEmail(email);
+    localStorage.setItem("cloudpilot-notification-email", email);
   };
 
   const hasMessages = messages.length > 0;
