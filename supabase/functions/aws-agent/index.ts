@@ -318,7 +318,7 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { messages, credentials } = body;
+    const { messages, credentials, notificationEmail } = body;
 
     // ── Validate messages array ─────────────────────────────────────────────
     if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES) {
