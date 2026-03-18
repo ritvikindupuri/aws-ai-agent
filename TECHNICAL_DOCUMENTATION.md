@@ -644,6 +644,8 @@ All simulations execute real API calls and follow the mandatory Attack Simulatio
 
 CloudPilot AI provides **30 pre-built quick action prompts** organized into 6 color-coded categories. Each prompt is carefully engineered with specific API call instructions to ensure Zero Simulation Tolerance—every prompt explicitly instructs the AI to use real AWS API calls and report only real data.
 
+**Behavior:** When a user clicks a quick action button, the prompt is **populated into the message input box** rather than being sent immediately. This allows the user to review, modify, or augment the prompt before sending. The textarea auto-focuses and auto-resizes to display the full prompt.
+
 | Category | Color | Actions | Description |
 |----------|-------|---------|-------------|
 | **AUDIT** (8 actions) | Blue | S3 Buckets, IAM Posture, Security Groups, EC2 Instances, RDS/Aurora, Lambda Security, IP Safety Check, Log Analyst | Comprehensive configuration audits with real API calls |
