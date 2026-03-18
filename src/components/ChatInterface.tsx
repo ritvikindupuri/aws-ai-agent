@@ -19,6 +19,10 @@ const ChatInterface = () => {
   const [showSidebar, setShowSidebar] = useState(true);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [findings] = useState<Finding[]>([]);
+  const [notificationEmail, setNotificationEmail] = useState<string>(() => {
+    return localStorage.getItem("cloudpilot-notification-email") || "";
+  });
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { user, signOut } = useAuth();
   const {
