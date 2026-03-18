@@ -31,7 +31,7 @@ By tightly coupling LLM reasoning capabilities with strict, restricted, and audi
 10. [Chat History & Persistence](#chat-history--persistence)
 11. [Output Formatting & Markdown Rendering](#output-formatting--markdown-rendering)
 12. [API Limits & Rate Limiting](#api-limits--rate-limiting)
-13. [Email Alerts & Notifications](#email-alerts--notifications)
+13. [Email Notifications via AWS SNS](#email-notifications-via-aws-sns)
 14. [Compliance Frameworks](#compliance-frameworks)
 15. [Conclusion](#conclusion)
 
