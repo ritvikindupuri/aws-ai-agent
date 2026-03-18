@@ -13,21 +13,21 @@ Real-time AWS security operations. Connect your credentials to audit, investigat
 ```mermaid
 sequenceDiagram
     participant User
-    participant React Frontend
-    participant Supabase Edge Function
-    participant AI Gateway (Gemini)
-    participant AWS Account
+    participant Frontend as "React Frontend"
+    participant Edge as "Supabase Edge Function"
+    participant Gateway as "AI Gateway (Gemini)"
+    participant AWS as "AWS Account"
 
-    User->>React Frontend: Enter query & AWS credentials
-    React Frontend->>Supabase Edge Function: Send prompt + credentials
-    Supabase Edge Function->>AI Gateway (Gemini): Forward prompt, injected tools & credentials context
-    AI Gateway (Gemini)-->>Supabase Edge Function: Returns required AWS tool calls (e.g. execute_aws_api)
-    Supabase Edge Function->>AWS Account: Executes real AWS SDK calls using user credentials
-    AWS Account-->>Supabase Edge Function: Returns real API response
-    Supabase Edge Function->>AI Gateway (Gemini): Provide API response context
-    AI Gateway (Gemini)-->>Supabase Edge Function: Synthesizes final analysis
-    Supabase Edge Function-->>React Frontend: Streams Markdown response (Findings & Remediation)
-    React Frontend-->>User: Displays real-time security insights
+    User->>Frontend: Enter query & AWS credentials
+    Frontend->>Edge: Send prompt + credentials
+    Edge->>Gateway: Forward prompt + context
+    Gateway-->>Edge: Returns required AWS tool calls
+    Edge->>AWS: Executes AWS SDK calls
+    AWS-->>Edge: Returns API response
+    Edge->>Gateway: Provide API response context
+    Gateway-->>Edge: Synthesizes final analysis
+    Edge-->>Frontend: Streams Markdown response
+    Frontend-->>User: Displays real-time insights
 ```
 <div align="center">
   <em>Figure 1: CloudPilot AI System Architecture and Request Flow</em>
