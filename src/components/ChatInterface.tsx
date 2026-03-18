@@ -283,6 +283,9 @@ const ChatInterface = () => {
             {/* AWS Credentials */}
             <AwsCredentialsPanel credentials={credentials} onSave={setCredentials} compact />
 
+            {/* Notification Email Settings */}
+            <NotificationSettings email={notificationEmail} onSave={handleSaveNotificationEmail} />
+
             {/* Findings */}
             <FindingsPanel
               findings={findings}
