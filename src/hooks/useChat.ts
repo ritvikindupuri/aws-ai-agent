@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { ChatMessageData, MessageRole, MessageStatus } from "@/components/ChatMessage";
 import type { AwsCredentials } from "@/components/AwsCredentialsPanel";
 
-export const useChat = (conversationId: string | null) => {
+export const useChat = (conversationId: string | null, notificationEmail?: string) => {
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
