@@ -158,7 +158,7 @@ const Report = () => {
       </header>
 
       {/* Report content */}
-      <main className="max-w-4xl mx-auto px-6 py-10">
+      <main className="max-w-4xl mx-auto px-6 py-10" ref={reportContentRef}>
         <div className="mb-8 pb-6 border-b border-border">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center print:hidden">
