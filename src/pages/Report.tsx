@@ -27,6 +27,8 @@ const Report = () => {
   const [conversation, setConversation] = useState<ReportConversation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const reportContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (authLoading) return;
