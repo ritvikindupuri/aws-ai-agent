@@ -70,6 +70,28 @@ const Report = () => {
     load();
   }, [messageId, user, authLoading, navigate]);
 
+  const downloadPdf = useCallback(async () => {
+    if (!reportContentRef.current || downloading) return;
+    setDownloading(true);
+    try {
+      const html2pdf = (await import("html2pdf.js")).default;
+      const ts = message ? new Date(message.created_at).toISOString().slice(0, 10) : "report";
+      const opt = {
+        margin: [0.5, 0.6, 0.5, 0.6],
+        filename: `CloudPilot-Report-${ts}-${messageId?.slice(0, 8)}.pdf`,
+        image: { type: "jpeg", quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF: { unit: "in", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+      };
+      await html2pdf().set(opt).from(reportContentRef.current).save();
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+    } finally {
+      setDownloading(false);
+    }
+  }, [message, messageId, downloading]);
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
