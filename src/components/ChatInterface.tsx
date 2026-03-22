@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Plus, PanelRightOpen, PanelRightClose, LogOut, History, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ChatMessage from "@/components/ChatMessage";
+import ThinkingIndicator from "@/components/ThinkingIndicator";
 import QuickActions from "@/components/QuickActions";
 import AwsCredentialsPanel, { type AwsCredentials } from "@/components/AwsCredentialsPanel";
 import FindingsPanel, { type Finding } from "@/components/FindingsPanel";
@@ -12,6 +13,7 @@ import NotificationSettings from "@/components/NotificationSettings";
 import { useChat } from "@/hooks/useChat";
 import { useAuth } from "@/hooks/useAuth";
 import { useChatHistory } from "@/hooks/useChatHistory";
+import { toast } from "sonner";
 
 const ChatInterface = () => {
   const [input, setInput] = useState("");
@@ -38,7 +40,7 @@ const ChatInterface = () => {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const startNewChat = () => {
     setCurrentConvId(null);
@@ -94,7 +96,6 @@ const ChatInterface = () => {
 
   const handleQuickAction = (prompt: string) => {
     setInput(prompt);
-    // Focus the textarea and auto-resize
     setTimeout(() => {
       if (textareaRef.current) {
         textareaRef.current.focus();
@@ -108,6 +109,55 @@ const ChatInterface = () => {
     setNotificationEmail(email);
     localStorage.setItem("cloudpilot-notification-email", email);
   };
+
+  const handleAddToS3 = useCallback(async (content: string, messageId: string) => {
+    if (!credentials) {
+      toast.error("AWS credentials required to upload to S3");
+      return;
+    }
+
+    try {
+      const resp = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/aws-agent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({
+            messages: [
+              {
+                role: "user",
+                content: `Archive the following report to the centralized S3 bucket (cloudpilot-reports-<account-id>). Create the bucket if it doesn't exist. Upload as markdown with key "reports/${new Date().toISOString().slice(0, 10)}/${messageId}.md". Only perform the S3 archival — do NOT regenerate the report. Respond with a brief confirmation of the S3 upload location.\n\n---\n\n${content}`,
+              },
+            ],
+            credentials,
+            notificationEmail: null,
+          }),
+        }
+      );
+
+      if (!resp.ok) throw new Error("S3 upload request failed");
+
+      // Consume the stream but we don't need to display it
+      const reader = resp.body?.getReader();
+      if (reader) {
+        while (true) {
+          const { done } = await reader.read();
+          if (done) break;
+        }
+      }
+
+      toast.success("Report archived to S3 bucket");
+    } catch (err: any) {
+      toast.error("Failed to archive report to S3: " + (err.message || "Unknown error"));
+      throw err;
+    }
+  }, [credentials]);
+
+  // Determine if we should show the thinking indicator
+  const showThinking = isLoading && (messages.length === 0 || messages[messages.length - 1]?.role === "user");
 
   const hasMessages = messages.length > 0;
   const userEmail = user?.email ?? "";
@@ -202,8 +252,9 @@ const ChatInterface = () => {
             ) : (
               <div className="py-2">
                 {messages.map((msg) => (
-                  <ChatMessage key={msg.id} message={msg} />
+                  <ChatMessage key={msg.id} message={msg} onAddToS3={handleAddToS3} />
                 ))}
+                {showThinking && <ThinkingIndicator />}
                 <div ref={bottomRef} />
               </div>
             )}

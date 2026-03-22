@@ -674,11 +674,22 @@ serve(async (req) => {
               } as any);
             } catch (err: any) {
               console.error("[CloudPilot] AWS SDK Error:", err.message);
+
+              let errorDetail = err.message;
+              if (err.code === "AccessDeniedException" || err.code === "AccessDenied" || err.code === "UnauthorizedAccess" || err.code === "AuthorizationError" || err.statusCode === 403) {
+                const svc = service.toLowerCase();
+                const op = operation;
+                errorDetail = `PERMISSION DENIED: The configured IAM credentials do not have permission to perform '${svc}:${op}'. ` +
+                  `To resolve this, the IAM user/role needs the following permission added to its policy:\n\n` +
+                  `{\n  "Effect": "Allow",\n  "Action": "${svc}:${op[0].toUpperCase() + op.slice(1)}",\n  "Resource": "*"\n}\n\n` +
+                  `Original error: ${err.message} (Code: ${err.code})`;
+              }
+
               apiMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
                 content: JSON.stringify({
-                  error: err.message,
+                  error: errorDetail,
                   code: err.code,
                   statusCode: err.statusCode,
                 }),
