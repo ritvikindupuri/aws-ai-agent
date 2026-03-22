@@ -59,6 +59,14 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/reports"
+        element={
+          <ProtectedRoute>
+            <ReportsHistory />
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
