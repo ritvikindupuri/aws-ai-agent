@@ -32,8 +32,10 @@ By tightly coupling LLM reasoning capabilities with strict, restricted, and audi
 11. [Output Formatting & Markdown Rendering](#output-formatting--markdown-rendering)
 12. [API Limits & Rate Limiting](#api-limits--rate-limiting)
 13. [Email Notifications via AWS SNS](#email-notifications-via-aws-sns)
-14. [Compliance Frameworks](#compliance-frameworks)
-15. [Conclusion](#conclusion)
+14. [Report Management — S3 Archival, PDF Export & Reports History](#report-management--s3-archival-pdf-export--reports-history)
+15. [UX Enhancements — Thinking Indicator & Permission Error Clarity](#ux-enhancements--thinking-indicator--permission-error-clarity)
+16. [Compliance Frameworks](#compliance-frameworks)
+17. [Conclusion](#conclusion)
 
 ### Typical User Query Flow
 
