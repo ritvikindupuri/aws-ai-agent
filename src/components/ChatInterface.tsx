@@ -17,6 +17,7 @@ import { useChatHistory } from "@/hooks/useChatHistory";
 import { toast } from "sonner";
 
 const ChatInterface = () => {
+  const navigate = useNavigate();
   const [input, setInput] = useState("");
   const [credentials, setCredentials] = useState<AwsCredentials | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
