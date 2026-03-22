@@ -193,6 +193,16 @@ const ChatInterface = () => {
             New Chat
           </Button>
 
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate("/reports")}
+            className="hidden sm:flex items-center gap-1.5 text-muted-foreground hover:text-foreground h-8 px-2.5 text-xs"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Reports
+          </Button>
+
           {userLabel && (
             <span className="hidden md:block text-[11px] text-muted-foreground px-2 font-mono">
               {userLabel}
