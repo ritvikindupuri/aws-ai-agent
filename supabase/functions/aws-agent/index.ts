@@ -476,18 +476,26 @@ serve(async (req) => {
       }
     }
 
-    // ── Validate credentials ────────────────────────────────────────────────
+    // ── Validate session credentials (pre-exchanged via aws-exchange-credentials) ──
     if (!credentials || typeof credentials !== "object") {
       return new Response(
-        JSON.stringify({ error: "AWS credentials are required" }),
+        JSON.stringify({ error: "AWS session credentials are required. Connect via the credentials panel first." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const region = sanitizeString(credentials.region, 30);
+    const { accessKeyId, secretAccessKey, sessionToken, region: credRegion } = credentials;
+    const region = sanitizeString(credRegion, 30);
     if (!AWS_REGION_REGEX.test(region)) {
       return new Response(
         JSON.stringify({ error: "Invalid AWS region format." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!accessKeyId || !secretAccessKey || !sessionToken) {
+      return new Response(
+        JSON.stringify({ error: "Session credentials (accessKeyId, secretAccessKey, sessionToken) are required. Raw keys are not accepted — use the credential exchange endpoint first." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -500,63 +508,18 @@ serve(async (req) => {
       );
     }
 
-    // Configure AWS credentials
-    let awsConfig: any = { region };
-
-    if (credentials.method === "access_key") {
-      const accessKeyId = sanitizeString(credentials.accessKeyId, 128);
-      const secretAccessKey = sanitizeString(credentials.secretAccessKey, 256);
-      if (!accessKeyId || !secretAccessKey) {
-        throw new Error("Access Key ID and Secret Access Key are required.");
-      }
-      if (!ACCESS_KEY_REGEX.test(accessKeyId)) {
-        throw new Error("Invalid Access Key ID format.");
-      }
-      awsConfig = {
-        credentials: {
-          accessKeyId,
-          secretAccessKey,
-          sessionToken: credentials.sessionToken ? sanitizeString(credentials.sessionToken, 2048) : undefined,
-        },
-        region,
-      };
-    } else if (credentials.method === "assume_role") {
-      const roleArn = sanitizeString(credentials.roleArn, 256);
-      if (!roleArn || !ROLE_ARN_REGEX.test(roleArn)) {
-        throw new Error("Invalid Role ARN format. Expected: arn:aws:iam::<account-id>:role/<role-name>");
-      }
-      const sts = new AWS.STS({ region });
-      try {
-        const assumedRole = await sts.assumeRole({
-          RoleArn: roleArn,
-          RoleSessionName: `CloudPilot-${Date.now()}`,
-          DurationSeconds: 3600,
-        }).promise();
-
-        awsConfig = {
-          credentials: {
-            accessKeyId: assumedRole.Credentials?.AccessKeyId,
-            secretAccessKey: assumedRole.Credentials?.SecretAccessKey,
-            sessionToken: assumedRole.Credentials?.SessionToken,
-          },
-          region,
-        };
-      } catch (err: any) {
-        throw new Error("Failed to assume role: " + err.message);
-      }
-    } else {
-      throw new Error(`Unsupported credentials method: ${credentials.method}`);
-    }
-
-    if (!awsConfig.credentials || !awsConfig.credentials.accessKeyId) {
-      throw new Error("Failed to securely resolve AWS credentials.");
-    }
+    // Only session-based credentials are accepted — raw keys never reach this endpoint
+    const awsConfig = {
+      credentials: {
+        accessKeyId: sanitizeString(accessKeyId, 128),
+        secretAccessKey: sanitizeString(secretAccessKey, 256),
+        sessionToken: sanitizeString(sessionToken, 2048),
+      },
+      region,
+    };
 
     const maskedKey = awsConfig.credentials.accessKeyId.slice(0, 4) + "****" + awsConfig.credentials.accessKeyId.slice(-4);
-    const credContext =
-      credentials.method === "access_key"
-        ? `Connected via Access Key (${maskedKey}) in region ${region}`
-        : `Connected via Assume Role in region ${region}`;
+    const credContext = `Connected via STS Session Token (${maskedKey}) in region ${region}`;
 
     // Sanitize user messages before sending to AI — strip any injection attempts
     const sanitizedMessages = messages.map((m: any) => ({

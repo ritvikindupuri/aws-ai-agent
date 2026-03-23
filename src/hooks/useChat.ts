@@ -97,6 +97,12 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
           content: m.content,
         }));
 
+        // Only send session credentials — never raw keys
+        const sessionCreds = credentials.session;
+        if (!sessionCreds) {
+          throw new Error("No valid session credentials. Please re-authenticate your AWS credentials.");
+        }
+
         const resp = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/aws-agent`,
           {
@@ -105,7 +111,11 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
               "Content-Type": "application/json",
               Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
             },
-            body: JSON.stringify({ messages: historyForApi, credentials, notificationEmail: notificationEmail || null }),
+            body: JSON.stringify({
+              messages: historyForApi,
+              credentials: sessionCreds,
+              notificationEmail: notificationEmail || null,
+            }),
           }
         );
 
