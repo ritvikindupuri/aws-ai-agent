@@ -69,7 +69,7 @@ const ChatInterface = () => {
 
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed || isLoading || !credentials) return;
+    if (!trimmed || isLoading || !credentials?.session) return;
     setInput("");
 
     let convId = currentConvId;
