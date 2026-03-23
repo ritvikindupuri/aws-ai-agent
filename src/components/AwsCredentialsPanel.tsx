@@ -23,6 +23,8 @@ export interface AwsCredentials {
   session: AwsSessionCredentials | null;
   /** Display-only metadata */
   identity?: { account: string; arn: string };
+  /** Evaluated permissions for the principal */
+  permissions?: Record<string, boolean>;
   /** Original access key ID prefix for display */
   displayKeyPrefix?: string;
 }
@@ -85,6 +87,7 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
         region,
         session: data.sessionCredentials,
         identity: data.identity,
+        permissions: data.permissions,
         displayKeyPrefix: method === "access_key" ? accessKeyId.slice(0, 10) : undefined,
       };
 
@@ -255,6 +258,20 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
                   Raw keys are exchanged for temporary STS session tokens. Only session tokens are used for requests — raw keys are never stored or transmitted to the agent.
                 </p>
               </div>
+
+              {credentials?.permissions && Object.keys(credentials.permissions).length > 0 && (
+                <div className="space-y-1.5 pt-2 border-t border-border mt-2">
+                  <Label className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">IAM Capability Check (Pre-Flight)</Label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {Object.entries(credentials.permissions).map(([action, allowed]) => (
+                      <div key={action} className="flex items-center gap-1.5 text-[10px] font-mono">
+                        <div className={`w-2 h-2 rounded-full ${allowed ? 'bg-green-500' : 'bg-red-500'}`} />
+                        <span className={allowed ? 'text-foreground' : 'text-muted-foreground'}>{action}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <Button
                 variant="terminal"

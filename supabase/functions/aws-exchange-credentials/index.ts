@@ -164,6 +164,48 @@ serve(async (req) => {
       );
     }
 
+    // --- Pre-Flight IAM Boundary Checks ---
+    const iam = new AWS.IAM({
+      credentials: {
+        accessKeyId: tempCredentials.accessKeyId,
+        secretAccessKey: tempCredentials.secretAccessKey,
+        sessionToken: tempCredentials.sessionToken,
+      },
+      region,
+    });
+
+    const actionsToTest = [
+      "s3:ListAllMyBuckets",
+      "ec2:DescribeInstances",
+      "iam:ListUsers",
+      "cloudtrail:DescribeTrails",
+      "guardduty:ListDetectors"
+    ];
+
+    let permissions: Record<string, boolean> = {};
+
+    try {
+      const simResult = await iam.simulatePrincipalPolicy({
+        PolicySourceArn: identity.arn,
+        ActionNames: actionsToTest,
+      }).promise();
+
+      if (simResult.EvaluationResults) {
+        simResult.EvaluationResults.forEach((result) => {
+          if (result.EvalActionName) {
+            permissions[result.EvalActionName] = result.EvalDecision === "allowed";
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("SimulatePrincipalPolicy failed", e);
+      // If we cannot simulate, we just return empty or false
+      actionsToTest.forEach(action => {
+        permissions[action] = false;
+      });
+    }
+    // --------------------------------------
+
     return new Response(
       JSON.stringify({
         sessionCredentials: {
@@ -174,6 +216,7 @@ serve(async (req) => {
           region,
         },
         identity,
+        permissions,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

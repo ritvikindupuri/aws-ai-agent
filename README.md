@@ -46,6 +46,9 @@ sequenceDiagram
 ## Key Features
 
 - **Live AWS API Execution**: Connect your credentials to audit, investigate, and remediate cloud infrastructure using real AWS API responses.
+- **Pre-Flight IAM Boundary Checks**: The application automatically evaluates your principal's permissions against critical operations (like listing S3 buckets, EC2 instances, and IAM users) upon connection, presenting a green/red checklist.
+- **PrivateLink / VPC Endpoints**: CloudPilot backend can be deployed inside an AWS VPC with VPC Endpoints (AWS PrivateLink), allowing API calls to never traverse the public internet. By configuring Private DNS in your VPC endpoints, the AWS SDK will automatically route traffic locally.
+- **WORM Audit Logging**: The Supabase backend streams every single AWS SDK call payload directly into an immutable, Write-Once-Read-Many (WORM) S3 bucket controlled by the security team.
 - **Automatic Industry-Grade Reports**: Every query generates a structured security report with executive summary, findings table, risk matrix, remediation plan, and compliance mapping.
 - **Email Notifications via AWS SNS**: Configure a notification email in settings — the agent automatically creates an SNS topic, subscribes your email, and sends report summaries after every analysis using your AWS credentials.
 - **Log Analyst & Threat Detector**: Parses and summarizes CloudTrail and CloudWatch logs while utilizing GuardDuty for anomaly and IOC pattern matching.
