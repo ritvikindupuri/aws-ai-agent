@@ -391,6 +391,70 @@ The session name `CloudPilot-<timestamp>` ensures that all API calls made by the
 
 ---
 
+## STS Credential Exchange — Zero Raw Key Transmission
+
+Raw AWS credentials (Access Key ID, Secret Access Key) **never reach the AI agent**. Instead, the application implements a secure credential exchange protocol via a dedicated edge function (`aws-exchange-credentials`).
+
+### Exchange Flow
+
+```mermaid
+sequenceDiagram
+    participant User as User (Browser)
+    participant Panel as AwsCredentialsPanel
+    participant Exchange as aws-exchange-credentials<br/>(Edge Function)
+    participant STS as AWS STS
+    participant Agent as aws-agent<br/>(Edge Function)
+
+    User->>Panel: Enters raw AWS credentials
+    Panel->>Exchange: POST /aws-exchange-credentials<br/>{method, accessKeyId, secretAccessKey, region}
+    Exchange->>STS: sts:GetCallerIdentity()
+    STS-->>Exchange: {Account, Arn, UserId}
+    Exchange->>STS: sts:GetSessionToken(DurationSeconds: 3600)
+    STS-->>Exchange: {AccessKeyId, SecretAccessKey, SessionToken, Expiration}
+    Exchange-->>Panel: {sessionCredentials, identity}
+    Note over Panel: Raw keys cleared from memory
+    Panel->>Panel: Stores only session credentials
+
+    User->>Agent: Sends query with session credentials ONLY
+    Note over Agent: Rejects any request without sessionToken
+    Agent->>STS: Uses temporary session credentials
+```
+
+<div align="center">
+  <em>Figure: STS Credential Exchange — Raw keys never reach the agent</em>
+</div>
+
+### How It Works
+
+1. **User Input:** The user enters raw credentials in the `AwsCredentialsPanel` component (Access Key + Secret, or Role ARN).
+2. **Validation & Exchange:** On "Connect", the frontend calls the `aws-exchange-credentials` edge function which:
+   - Validates credential format (regex: `ACCESS_KEY_REGEX`, `ROLE_ARN_REGEX`, `AWS_REGION_REGEX`)
+   - Calls `STS:GetCallerIdentity` to verify the credentials are valid and retrieve account metadata
+   - Calls `STS:GetSessionToken` (for access keys) or `STS:AssumeRole` (for role ARN) to obtain temporary credentials
+   - Returns only the temporary session credentials + identity metadata
+3. **Raw Key Erasure:** After a successful exchange, the frontend clears all raw credential state variables from memory.
+4. **Session-Only Transmission:** All subsequent requests to `aws-agent` include only the session credentials (`accessKeyId`, `secretAccessKey`, `sessionToken`). The agent edge function **rejects** any request missing a `sessionToken` field.
+5. **Expiration Handling:** Session tokens expire after 1 hour. The UI displays "Session Expired" and prompts re-authentication.
+
+### Security Properties
+
+| Property | Implementation |
+|----------|---------------|
+| **Raw keys in transit** | Sent once to `aws-exchange-credentials` over TLS, never to `aws-agent` |
+| **Raw keys at rest** | Never stored — cleared from React state after exchange |
+| **Session duration** | 1 hour (STS default) |
+| **Session token scope** | Same permissions as the original credentials, but time-bounded |
+| **Agent enforcement** | `aws-agent` rejects requests without `sessionToken` with HTTP 400 |
+
+### Required IAM Permissions for Exchange
+
+The user's IAM credentials must have at minimum:
+- `sts:GetCallerIdentity` — to validate the credentials
+- `sts:GetSessionToken` — to exchange for temporary credentials (access key method)
+- `sts:AssumeRole` — only if using the Assume Role method
+
+---
+
 ## Frontend Architecture
 
 The frontend is a Single Page Application (SPA) built with React 18 and Vite.
