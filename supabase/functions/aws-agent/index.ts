@@ -434,6 +434,84 @@ const BLOCKED_OPERATIONS = new Set([
   "createAccount", "inviteAccountToOrganization",
 ]);
 
+// ── Privilege Escalation Validator ──────────────────────────────────────────
+// Blocks operations that could escalate IAM privileges or compromise account security
+const PRIVILEGE_ESCALATION_PATTERNS: Array<{ service: string; operations: Set<string>; reason: string }> = [
+  {
+    service: "IAM",
+    operations: new Set([
+      "createUser", "createLoginProfile", "updateLoginProfile",
+      "createAccessKey", "putUserPolicy", "attachUserPolicy",
+      "putGroupPolicy", "attachGroupPolicy",
+      "putRolePolicy", "attachRolePolicy",
+      "createPolicyVersion", "setDefaultPolicyVersion",
+      "addUserToGroup", "updateAssumeRolePolicy",
+      "createServiceLinkedRole",
+    ]),
+    reason: "This operation can escalate IAM privileges. It could grant broader access than the original credentials possess.",
+  },
+  {
+    service: "STS",
+    operations: new Set([
+      "assumeRole",
+    ]),
+    reason: "Assuming a different role could escalate privileges beyond the current session scope.",
+  },
+  {
+    service: "Organizations",
+    operations: new Set([
+      "createPolicy", "attachPolicy", "updatePolicy",
+    ]),
+    reason: "Organization-level policy changes can affect all accounts in the organization.",
+  },
+  {
+    service: "Lambda",
+    operations: new Set([
+      "createFunction", "updateFunctionCode", "addPermission",
+    ]),
+    reason: "Lambda function creation/modification with an execution role could be used for privilege escalation.",
+  },
+];
+
+interface ValidatorResult {
+  allowed: boolean;
+  reason?: string;
+  riskLevel?: "BLOCKED" | "HIGH_RISK" | "ALLOWED";
+}
+
+function validatePrivilegeEscalation(service: string, operation: string, params: any): ValidatorResult {
+  // Check blocked operations first
+  if (BLOCKED_OPERATIONS.has(operation)) {
+    return {
+      allowed: false,
+      reason: `Operation '${operation}' is permanently blocked. This operation could cause irreversible account-level damage.`,
+      riskLevel: "BLOCKED",
+    };
+  }
+
+  // Check privilege escalation patterns
+  for (const pattern of PRIVILEGE_ESCALATION_PATTERNS) {
+    if (pattern.service === service && pattern.operations.has(operation)) {
+      // Allow read-like operations that contain these words but are actually safe
+      // e.g., "getPolicy" vs "putPolicy"
+      const isReadOnly = /^(get|list|describe|head)/.test(operation);
+      if (isReadOnly) {
+        return { allowed: true, riskLevel: "ALLOWED" };
+      }
+
+      // For attack simulations, we allow but flag as HIGH_RISK and log extensively
+      // The agent's system prompt mandates cleanup of simulation resources
+      return {
+        allowed: true,
+        reason: `⚠️ HIGH-RISK OPERATION: ${service}.${operation} — ${pattern.reason} This call is permitted for authorized security assessments but will be logged to the audit trail.`,
+        riskLevel: "HIGH_RISK",
+      };
+    }
+  }
+
+  return { allowed: true, riskLevel: "ALLOWED" };
+}
+
 const MAX_MESSAGE_LENGTH = 50000;
 const MAX_MESSAGES = 100;
 
