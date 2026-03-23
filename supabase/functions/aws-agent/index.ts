@@ -758,6 +758,44 @@ serve(async (req) => {
                 }).then();
               }
 
+              // ── WORM Audit Logging (Success) ────────────────────────────────
+              const wormBucketSuccess = Deno.env.get("WORM_S3_BUCKET");
+              if (wormBucketSuccess) {
+                const wormConfig: any = {
+                  region: Deno.env.get("WORM_AWS_REGION") || awsConfig.region,
+                };
+                if (Deno.env.get("WORM_ACCESS_KEY_ID") && Deno.env.get("WORM_SECRET_ACCESS_KEY")) {
+                  wormConfig.credentials = {
+                    accessKeyId: Deno.env.get("WORM_ACCESS_KEY_ID")!,
+                    secretAccessKey: Deno.env.get("WORM_SECRET_ACCESS_KEY")!,
+                  };
+                }
+                const s3Worm = new AWS.S3(wormConfig);
+                const timestamp = new Date().toISOString();
+                const logKey = `audit-logs/${timestamp.replace(/:/g, '-')}-${crypto.randomUUID()}.json`;
+                let argsParams = null;
+                try {
+                  argsParams = JSON.parse(toolCall.function.arguments).params;
+                } catch (e) {}
+                const payload = {
+                  timestamp,
+                  userId,
+                  service: service || "UNKNOWN",
+                  operation: operation || "UNKNOWN",
+                  region: awsConfig.region,
+                  params: argsParams,
+                  status: "success",
+                  validatorResult: validatorResult.riskLevel,
+                  executionTimeMs: execTime,
+                };
+                s3Worm.putObject({
+                  Bucket: wormBucketSuccess,
+                  Key: logKey,
+                  Body: JSON.stringify(payload),
+                  ContentType: "application/json",
+                }).promise().catch(e => console.error("Failed to write to WORM bucket:", e));
+              }
+
               // Prepend validator warning to tool response if HIGH_RISK
               const prefix = validatorResult.riskLevel === "HIGH_RISK"
                 ? `[VALIDATOR WARNING: ${validatorResult.reason}]\n\n`
