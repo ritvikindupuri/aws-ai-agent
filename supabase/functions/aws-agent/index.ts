@@ -925,6 +925,20 @@ serve(async (req) => {
                 }).then();
               }
 
+              // ── CloudWatch Logs + WORM S3 Audit Trail (Error) ─────────────
+              pushAuditToAws(awsConfig, {
+                timestamp: new Date().toISOString(),
+                userId,
+                service: service || "UNKNOWN",
+                operation: operation || "UNKNOWN",
+                region: awsConfig.region,
+                status: "error",
+                errorCode: err.code || null,
+                errorMessage: (errorDetail || "").slice(0, 2000),
+                validatorResult: validatorResult.riskLevel,
+                executionTimeMs: execTime,
+              });
+
               apiMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
