@@ -543,8 +543,8 @@ serve(async (req) => {
     if (authHeader?.startsWith("Bearer ")) {
       try {
         const token = authHeader.replace("Bearer ", "");
-        const { data } = await supabaseAdmin.auth.getClaims(token);
-        userId = (data?.claims as any)?.sub || null;
+        const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+        userId = user?.id || null;
       } catch { /* anon access — userId stays null */ }
     }
 
