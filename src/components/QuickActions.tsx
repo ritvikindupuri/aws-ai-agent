@@ -4,7 +4,8 @@ import {
   Eye, Activity, Network, HardDrive, Swords,
   Key, Radio, GitBranch, Cpu, Fingerprint, Target,
   FileText, Radar, Bot, ClipboardList, Ban,
-  UserX, BellRing, Archive, Mail, ShieldCheck
+  UserX, BellRing, Archive, Mail, ShieldCheck,
+  BarChart3, Bell, Gauge, ScrollText, LayoutDashboard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
