@@ -27,6 +27,15 @@ For every security request:
   STEP 3 → Analyze ONLY the real API responses you received
   STEP 4 → Write your findings based exclusively on that real data
 
+For IAM access automation requests (example: "give dev-team read-only S3 access"):
+  STEP 1 → Use manage_iam_access to build a structured least-privilege preview
+  STEP 2 → Present the preview and explicitly ask for confirmation
+  STEP 3 → DO NOT execute IAM write operations until the user sends an explicit confirmation
+  STEP 4 → After the user confirms, call manage_iam_access again with the same request to execute it
+
+NEVER use execute_aws_api directly for IAM policy creation or IAM policy attachment when manage_iam_access is applicable.
+NEVER generate wildcard IAM actions like iam:* or service:* inside IAM automation previews.
+
 For attack simulation requests:
   STEP 1 → Use AWS APIs to discover the real attack surface
   STEP 2 → Enumerate real paths, policies, and configurations that enable the attack vector
@@ -416,7 +425,208 @@ const tools = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "manage_iam_access",
+      description:
+        "Creates a safe IAM access preview or executes a confirmed IAM access change for a narrow, least-privilege automation flow. Use this for requests like 'give dev-team read-only S3 access'.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["attach_policy"],
+            description: "Currently supported IAM automation action.",
+          },
+          principalType: {
+            type: "string",
+            enum: ["user", "group", "role"],
+            description: "IAM principal type to receive the policy.",
+          },
+          principalIdentifier: {
+            type: "string",
+            description: "Exact IAM user, group, or role name.",
+          },
+          service: {
+            type: "string",
+            enum: ["s3"],
+            description: "AWS service to scope the generated access policy to.",
+          },
+          scope: {
+            type: "string",
+            enum: ["read-only"],
+            description: "Least-privilege access scope.",
+          },
+          resources: {
+            type: "array",
+            description: "Optional list of specific ARNs to scope access to. If omitted, a broader service-level resource pattern is used.",
+            items: {
+              type: "string",
+            },
+          },
+        },
+        required: ["action", "principalType", "principalIdentifier", "service", "scope"],
+      },
+    },
+  },
 ];
+
+const IAM_BLOCKED_ACTIONS = new Set([
+  "*",
+  "iam:*",
+  "iam:CreateUser",
+  "iam:AttachUserPolicy",
+  "iam:PutUserPolicy",
+  "iam:PassRole",
+  "sts:AssumeRole",
+]);
+
+const IAM_CONFIRM_PATTERNS = [
+  /^confirm$/i,
+  /^confirm\s+apply$/i,
+  /^apply$/i,
+  /^proceed$/i,
+  /^approved?$/i,
+  /^yes[, ]+apply$/i,
+  /^yes[, ]+confirm$/i,
+];
+
+type IamPrincipalType = "user" | "group" | "role";
+type IamAutomationAction = "attach_policy";
+type IamAutomationService = "s3";
+type IamAutomationScope = "read-only";
+
+interface IamAutomationArgs {
+  action: IamAutomationAction;
+  principalType: IamPrincipalType;
+  principalIdentifier: string;
+  service: IamAutomationService;
+  scope: IamAutomationScope;
+  resources?: string[];
+}
+
+interface IamPolicyTemplate {
+  actions: string[];
+  defaultResources: string[];
+  warning?: string;
+}
+
+const IAM_POLICY_TEMPLATES: Record<string, IamPolicyTemplate> = {
+  "s3:read-only": {
+    actions: ["s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"],
+    defaultResources: ["arn:aws:s3:::*", "arn:aws:s3:::*/*"],
+    warning: "Resource scope is broad (all buckets). Prefer specifying exact bucket ARNs when possible.",
+  },
+};
+
+function isExplicitConfirmation(input: string): boolean {
+  const text = sanitizeString(input, 200).trim();
+  return IAM_CONFIRM_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function sanitizePrincipalIdentifier(value: unknown): string {
+  return sanitizeString(value, 128).replace(/[^\w+=,.@-]/g, "");
+}
+
+function sanitizeArnList(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => sanitizeString(value, 512).trim())
+    .filter(Boolean)
+    .slice(0, 25);
+}
+
+function buildPolicyName(principalIdentifier: string, service: string, scope: string): string {
+  const safePrincipal = principalIdentifier.toLowerCase().replace(/[^a-z0-9+=,.@-]/g, "-").slice(0, 48);
+  const safeService = service.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const safeScope = scope.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  return `guardian-${safePrincipal}-${safeService}-${safeScope}-${Date.now()}`;
+}
+
+function validateIamPolicyActions(actions: string[]): { valid: boolean; reason?: string } {
+  for (const action of actions) {
+    if (IAM_BLOCKED_ACTIONS.has(action) || action.endsWith(":*")) {
+      return {
+        valid: false,
+        reason: `Action '${action}' is blocked because it is too broad or creates an escalation path.`,
+      };
+    }
+  }
+  return { valid: true };
+}
+
+function buildIamAccessPlan(rawArgs: Record<string, any>) {
+  const args: IamAutomationArgs = {
+    action: rawArgs.action,
+    principalType: rawArgs.principalType,
+    principalIdentifier: sanitizePrincipalIdentifier(rawArgs.principalIdentifier),
+    service: rawArgs.service,
+    scope: rawArgs.scope,
+    resources: sanitizeArnList(rawArgs.resources),
+  };
+
+  if (!args.principalIdentifier) {
+    throw new Error("A valid IAM principal identifier is required.");
+  }
+
+  const template = IAM_POLICY_TEMPLATES[`${args.service}:${args.scope}`];
+  if (!template) {
+    throw new Error(`Unsupported IAM automation request: ${args.service}:${args.scope}.`);
+  }
+
+  const resources = args.resources && args.resources.length > 0
+    ? args.resources
+    : template.defaultResources;
+
+  const actionValidation = validateIamPolicyActions(template.actions);
+  if (!actionValidation.valid) {
+    throw new Error(actionValidation.reason);
+  }
+
+  const policyDocument = {
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Effect: "Allow",
+        Action: template.actions,
+        Resource: resources,
+      },
+    ],
+  };
+
+  const policyName = buildPolicyName(args.principalIdentifier, args.service, args.scope);
+  const warnings: string[] = [];
+  if (!args.resources || args.resources.length === 0) {
+    warnings.push(template.warning || "Resource scope is broad.");
+  }
+
+  const attachOperation = args.principalType === "group"
+    ? "attachGroupPolicy"
+    : args.principalType === "role"
+      ? "attachRolePolicy"
+      : "attachUserPolicy";
+
+  return {
+    args,
+    policyName,
+    policyDocument,
+    warnings,
+    attachOperation,
+  };
+}
+
+async function ensureIamPrincipalExists(iam: AWS.IAM, principalType: IamPrincipalType, identifier: string) {
+  if (principalType === "group") {
+    await iam.getGroup({ GroupName: identifier }).promise();
+    return;
+  }
+  if (principalType === "role") {
+    await iam.getRole({ RoleName: identifier }).promise();
+    return;
+  }
+  await iam.getUser({ UserName: identifier }).promise();
+}
 
 // ── CloudWatch Logs + WORM S3 Object Lock Audit Trail ───────────────────────
 const CW_LOG_GROUP = "/cloudpilot/agent-audit";
@@ -735,6 +945,8 @@ serve(async (req) => {
       role: m.role === "assistant" ? "assistant" : "user",
       content: sanitizeString(m.content, MAX_MESSAGE_LENGTH),
     }));
+    const latestUserMessage = [...sanitizedMessages].reverse().find((m: any) => m.role === "user")?.content || "";
+    const userHasConfirmedIamChange = isExplicitConfirmation(latestUserMessage);
 
     const emailContext = notificationEmail
       ? `\nNotification email configured: ${sanitizeString(notificationEmail, 320)}. After completing your analysis, you MUST send a report summary via AWS SNS as described in your instructions.`
@@ -802,7 +1014,189 @@ serve(async (req) => {
 
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
         for (const toolCall of responseMessage.tool_calls) {
-          if (toolCall.function.name === "execute_aws_api") {
+          if (toolCall.function.name === "manage_iam_access") {
+            const startTime = Date.now();
+            try {
+              const rawArgs = JSON.parse(toolCall.function.arguments);
+              const plan = buildIamAccessPlan(rawArgs);
+
+              if (!userHasConfirmedIamChange) {
+                const execTime = Date.now() - startTime;
+                const preview = {
+                  status: "preview_only",
+                  confirmationRequired: true,
+                  summary: `Create policy '${plan.policyName}' and attach it to IAM ${plan.args.principalType} '${plan.args.principalIdentifier}'.`,
+                  requestedAction: plan.args.action,
+                  principal: {
+                    type: plan.args.principalType,
+                    identifier: plan.args.principalIdentifier,
+                  },
+                  access: {
+                    service: plan.args.service,
+                    scope: plan.args.scope,
+                    resources: plan.policyDocument.Statement[0].Resource,
+                  },
+                  operations: [
+                    {
+                      service: "IAM",
+                      operation: "createPolicy",
+                    },
+                    {
+                      service: "IAM",
+                      operation: plan.attachOperation,
+                    },
+                  ],
+                  warnings: plan.warnings,
+                  policyDocument: plan.policyDocument,
+                  confirmationHint: "Reply with 'confirm' to apply this IAM change.",
+                };
+
+                if (userId) {
+                  supabaseAdmin.from("agent_audit_log").insert({
+                    user_id: userId,
+                    aws_service: "IAM",
+                    aws_operation: "previewIamAccessChange",
+                    aws_region: awsConfig.region,
+                    status: "success",
+                    validator_result: "ALLOWED",
+                    execution_time_ms: execTime,
+                  }).then();
+                }
+
+                pushAuditToAws(awsConfig, {
+                  timestamp: new Date().toISOString(),
+                  userId,
+                  service: "IAM",
+                  operation: "previewIamAccessChange",
+                  region: awsConfig.region,
+                  principalType: plan.args.principalType,
+                  principalIdentifier: plan.args.principalIdentifier,
+                  policyName: plan.policyName,
+                  status: "preview_only",
+                  executionTimeMs: execTime,
+                });
+
+                apiMessages.push({
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(preview),
+                } as any);
+                continue;
+              }
+
+              const iam = new AWS.IAM(awsConfig);
+              await ensureIamPrincipalExists(iam, plan.args.principalType, plan.args.principalIdentifier);
+
+              const createPolicyResult = await iam.createPolicy({
+                PolicyName: plan.policyName,
+                PolicyDocument: JSON.stringify(plan.policyDocument),
+                Description: `Created by CloudPilot IAM automation for ${plan.args.principalType}:${plan.args.principalIdentifier}`,
+              }).promise();
+
+              const policyArn = createPolicyResult.Policy?.Arn;
+              if (!policyArn) {
+                throw new Error("IAM policy was created without a returned ARN.");
+              }
+
+              if (plan.args.principalType === "group") {
+                await iam.attachGroupPolicy({
+                  GroupName: plan.args.principalIdentifier,
+                  PolicyArn: policyArn,
+                }).promise();
+              } else if (plan.args.principalType === "role") {
+                await iam.attachRolePolicy({
+                  RoleName: plan.args.principalIdentifier,
+                  PolicyArn: policyArn,
+                }).promise();
+              } else {
+                await iam.attachUserPolicy({
+                  UserName: plan.args.principalIdentifier,
+                  PolicyArn: policyArn,
+                }).promise();
+              }
+
+              const execTime = Date.now() - startTime;
+              const executionResult = {
+                status: "executed",
+                principal: {
+                  type: plan.args.principalType,
+                  identifier: plan.args.principalIdentifier,
+                },
+                policyName: plan.policyName,
+                policyArn,
+                attachOperation: plan.attachOperation,
+                policyDocument: plan.policyDocument,
+              };
+
+              if (userId) {
+                supabaseAdmin.from("agent_audit_log").insert({
+                  user_id: userId,
+                  aws_service: "IAM",
+                  aws_operation: "executeIamAccessChange",
+                  aws_region: awsConfig.region,
+                  status: "success",
+                  validator_result: "HIGH_RISK",
+                  execution_time_ms: execTime,
+                }).then();
+              }
+
+              pushAuditToAws(awsConfig, {
+                timestamp: new Date().toISOString(),
+                userId,
+                service: "IAM",
+                operation: "executeIamAccessChange",
+                region: awsConfig.region,
+                principalType: plan.args.principalType,
+                principalIdentifier: plan.args.principalIdentifier,
+                policyName: plan.policyName,
+                policyArn,
+                status: "success",
+                validatorResult: "HIGH_RISK",
+                executionTimeMs: execTime,
+              });
+
+              apiMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: JSON.stringify(executionResult),
+              } as any);
+            } catch (err: any) {
+              const execTime = Date.now() - startTime;
+              const errorMessage = err?.message || "IAM automation failed.";
+
+              if (userId) {
+                supabaseAdmin.from("agent_audit_log").insert({
+                  user_id: userId,
+                  aws_service: "IAM",
+                  aws_operation: "manageIamAccess",
+                  aws_region: awsConfig.region,
+                  status: "error",
+                  error_code: err?.code || null,
+                  error_message: errorMessage.slice(0, 2000),
+                  validator_result: userHasConfirmedIamChange ? "HIGH_RISK" : "ALLOWED",
+                  execution_time_ms: execTime,
+                }).then();
+              }
+
+              pushAuditToAws(awsConfig, {
+                timestamp: new Date().toISOString(),
+                userId,
+                service: "IAM",
+                operation: "manageIamAccess",
+                region: awsConfig.region,
+                status: "error",
+                errorCode: err?.code || null,
+                errorMessage: errorMessage.slice(0, 2000),
+                executionTimeMs: execTime,
+              });
+
+              apiMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({ error: errorMessage }),
+              } as any);
+            }
+          } else if (toolCall.function.name === "execute_aws_api") {
             const startTime = Date.now();
             let service = "";
             let operation = "";
