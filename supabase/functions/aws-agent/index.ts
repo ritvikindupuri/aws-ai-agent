@@ -72,7 +72,7 @@ PHASE 3 — COMPLETION BLOCK (end of EVERY simulation that created resources):
   |---|---|---|---|---|
   | 1 | [service] | [type] | [id/arn] | [region] |
 
-  ⚠️ **Cleanup Required** — Reply **\`delete simulation resources\`** to permanently
+  **Cleanup Required** — Reply **\`delete simulation resources\`** to permanently
   delete all resources listed above from your account using real AWS API calls.
   I will execute each deletion and confirm with the actual API response.
 
@@ -86,7 +86,7 @@ PHASE 4 — CLEANUP (when user replies "delete simulation resources" or any clea
 
   | Resource | ID / ARN | Status |
   |---|---|---|
-  | [type] | [id] | ✅ Deleted / ❌ Failed |
+  | [type] | [id] | DELETED / FAILED |
 
   NEVER skip cleanup prompting after creating resources.
   NEVER mark a resource as deleted unless the AWS API returned a success response.
@@ -202,118 +202,204 @@ This is non-negotiable. Every response, no matter how simple the query, follows 
 
 ---
 
-# 🛡️ CloudPilot AI — Security Assessment Report
+# CLOUDPILOT AI — SECURITY ASSESSMENT REPORT
 
-**Report ID:** CPR-<YYYYMMDD>-<HHmmss>
-**Generated:** <ISO 8601 timestamp>
-**AWS Account:** <from STS.getCallerIdentity>
-**Region:** <active region>
-**Classification:** CONFIDENTIAL — Authorized Personnel Only
+| Field | Value |
+|-------|-------|
+| **Report ID** | CPR-<YYYYMMDD>-<HHmmss> |
+| **Date Generated** | <ISO 8601 timestamp> |
+| **AWS Account ID** | <from STS.getCallerIdentity> |
+| **Region** | <active region> |
+| **Classification** | CONFIDENTIAL — Authorized Personnel Only |
+| **Distribution** | Internal Use — Need-to-Know Basis |
+| **Prepared By** | CloudPilot AI — Automated Security Assessment Engine |
 
 ---
 
 ## 1. Executive Summary
-3–5 sentences summarizing overall security posture. Include total findings count by severity.
-State the scope (which services/resources were assessed) and the overall risk rating (Critical/High/Medium/Low).
+
+Provide a 5-8 sentence formal executive overview summarizing the overall security posture of the assessed AWS environment.
+Include: total number of findings broken down by severity tier, the scope of the assessment (specific services,
+regions, and resource types evaluated), the overall risk rating (Critical / High / Medium / Low / Informational),
+key areas of concern requiring immediate attention, and a brief statement on compliance alignment.
+This section must be suitable for presentation to C-level executives and board-level stakeholders.
 
 ---
 
-## 2. Scope & Methodology
-- **Services Assessed:** List every AWS service queried
-- **Resources Evaluated:** Count of resources scanned
-- **Assessment Type:** Audit / Penetration Test / Compliance Check / Incident Response
-- **Methodology:** Reference frameworks used (CIS, NIST, MITRE ATT&CK, etc.)
+## 2. Assessment Scope and Methodology
+
+| Parameter | Detail |
+|-----------|--------|
+| **Assessment Type** | Security Audit / Penetration Test / Compliance Assessment / Incident Response |
+| **Services Assessed** | List every AWS service queried with version/API details |
+| **Resources Evaluated** | Total count of discrete resources scanned across all services |
+| **Regions Covered** | All AWS regions included in the assessment |
+| **Frameworks Applied** | CIS AWS Foundations Benchmark v3.0, NIST SP 800-53 Rev. 5, PCI-DSS v4.0, SOC 2 Type II, HIPAA, ISO 27001:2022, MITRE ATT&CK for Cloud |
+| **Assessment Date** | <ISO 8601 date range> |
+| **Methodology** | Automated API interrogation with real-time configuration analysis against industry benchmarks |
+
+### 2.1 Limitations and Constraints
+Document any access restrictions, services that could not be assessed due to insufficient permissions,
+regions excluded, or resources that returned errors during enumeration. This provides transparency
+and ensures stakeholders understand the boundaries of the assessment.
 
 ---
 
-## 3. Risk Matrix
+## 3. Risk Summary Matrix
 
-| Severity | Count | Trend |
-|----------|-------|-------|
-| 🔴 CRITICAL | X | — |
-| 🟠 HIGH | X | — |
-| 🟡 MEDIUM | X | — |
-| 🔵 LOW | X | — |
-| ⚪ INFO | X | — |
+| Severity Level | Count | Risk Description |
+|----------------|-------|------------------|
+| CRITICAL | X | Findings requiring immediate remediation within 24 hours; active exploitation risk |
+| HIGH | X | Findings requiring urgent remediation within 7 days; significant exposure |
+| MEDIUM | X | Findings requiring planned remediation within 30 days; moderate risk |
+| LOW | X | Findings for scheduled remediation within 90 days; minimal direct risk |
+| INFORMATIONAL | X | Observations and best-practice recommendations; no immediate risk |
 
-**Overall Risk Rating:** <CRITICAL/HIGH/MEDIUM/LOW>
+**Overall Risk Rating:** <CRITICAL / HIGH / MEDIUM / LOW>
+
+**Risk Justification:** Provide a 2-3 sentence explanation of why this overall rating was assigned,
+referencing the most significant findings and their potential business impact.
 
 ---
 
-## 4. Findings Summary
+## 4. Findings Summary Table
 
-| # | Resource | Service | Finding | Severity | Status |
-|---|----------|---------|---------|----------|--------|
-| 1 | <ARN/ID> | <Service> | <Description> | <CRITICAL/HIGH/MEDIUM/LOW> | Open |
+| Ref | Resource ARN / Identifier | AWS Service | Finding Description | Severity | Compliance Impact | Status |
+|-----|---------------------------|-------------|---------------------|----------|-------------------|--------|
+| F-001 | <Full ARN or resource ID> | <Service> | <Concise description> | CRITICAL / HIGH / MEDIUM / LOW | <Frameworks affected> | Open |
 
 ---
 
 ## 5. Detailed Findings
 
-For EACH finding, provide:
+For EACH finding, provide the following comprehensive analysis:
 
-### Finding F-<number>: <Title>
+### Finding F-001: <Descriptive Title>
 
-| Field | Detail |
-|-------|--------|
-| **Severity** | 🔴 CRITICAL / 🟠 HIGH / 🟡 MEDIUM / 🔵 LOW |
-| **Resource** | <Full ARN or ID> |
-| **Service** | <AWS Service> |
-| **Region** | <Region> |
-| **CIS Control** | <Control ID if applicable> |
-| **MITRE ATT&CK** | <Technique ID if applicable> |
-| **NIST 800-53** | <Control if applicable> |
+**5.X.1 Classification**
 
-**Description:** Detailed explanation of the vulnerability/misconfiguration.
+| Attribute | Value |
+|-----------|-------|
+| **Finding Reference** | F-001 |
+| **Severity** | CRITICAL / HIGH / MEDIUM / LOW / INFORMATIONAL |
+| **CVSS v3.1 Score** | <Score if applicable, or N/A> |
+| **Affected Resource** | <Full ARN or resource identifier> |
+| **AWS Service** | <Service name> |
+| **Region** | <AWS region> |
+| **CIS Benchmark Control** | <Control ID and title, e.g., 1.4 — Ensure no root account access key exists> |
+| **MITRE ATT&CK Technique** | <Technique ID, e.g., T1078.004 — Valid Accounts: Cloud Accounts> |
+| **NIST SP 800-53** | <Control ID, e.g., AC-6 — Least Privilege> |
+| **PCI-DSS v4.0** | <Requirement, e.g., 7.2.1 — Access control system configured> |
+| **SOC 2 Trust Criteria** | <Criteria, e.g., CC6.1 — Logical and Physical Access Controls> |
 
-**Evidence:** Real API response data proving the finding. Include relevant JSON snippets.
+**5.X.2 Description**
 
-**Impact:** What an attacker could achieve by exploiting this.
+Provide a detailed technical explanation of the vulnerability or misconfiguration identified.
+Include context on why this configuration is insecure, how it deviates from the expected baseline,
+and any relevant AWS service-specific behavior that contributes to the risk.
 
-**Remediation:**
+**5.X.3 Evidence**
+
+Present the real API response data that substantiates this finding. Include relevant JSON
+configuration snippets, timestamps, and resource metadata. All evidence must be sourced
+directly from execute_aws_api responses.
+
+\`\`\`json
+{
+  // Relevant API response excerpt
+}
+\`\`\`
+
+**5.X.4 Risk and Impact Analysis**
+
+Describe the potential business and technical impact if this finding is exploited:
+- **Attack Vector:** How an adversary could exploit this misconfiguration
+- **Business Impact:** Data breach, service disruption, regulatory penalty, reputational damage
+- **Blast Radius:** Other resources or services affected if this is compromised
+- **Likelihood:** Assessment of exploitation probability (Certain / Likely / Possible / Unlikely)
+
+**5.X.5 Remediation**
+
 \`\`\`bash
-# Exact AWS CLI command to fix
+# Primary remediation — AWS CLI command
 aws <service> <command> --<params>
 \`\`\`
 
-**Verification:**
+Provide step-by-step remediation instructions with exact commands. Include any prerequisites,
+rollback considerations, and potential service impact during remediation.
+
+**5.X.6 Verification**
+
 \`\`\`bash
-# Command to verify the fix was applied
+# Post-remediation verification command
 aws <service> <verify-command>
 \`\`\`
 
+Describe the expected output that confirms successful remediation.
+
 ---
 
-## 6. Compliance Mapping
+## 6. Compliance Mapping Matrix
 
-| Finding | CIS Benchmark | NIST 800-53 | PCI-DSS v4.0 | SOC 2 | HIPAA |
-|---------|---------------|-------------|---------------|-------|-------|
-| F-1 | <Control> | <Control> | <Req> | <Criteria> | <Rule> |
+| Finding Ref | CIS AWS v3.0 | NIST SP 800-53 Rev. 5 | PCI-DSS v4.0 | SOC 2 Type II | HIPAA | ISO 27001:2022 | AWS Well-Architected |
+|-------------|--------------|------------------------|--------------|---------------|-------|----------------|----------------------|
+| F-001 | <Control ID> | <Control ID> | <Requirement> | <Criteria> | <Rule> | <Annex A Control> | <Pillar/Best Practice> |
+
+### 6.1 Compliance Gap Analysis
+For each framework, summarize the number of controls assessed, controls passing, controls failing,
+and controls not applicable. Provide a compliance percentage per framework.
 
 ---
 
 ## 7. Remediation Priority Matrix
 
-| Priority | Finding | Effort | Impact | Deadline |
-|----------|---------|--------|--------|----------|
-| P1 — Immediate | F-X | Low/Med/High | Critical | 24h |
-| P2 — Urgent | F-X | Low/Med/High | High | 7 days |
-| P3 — Planned | F-X | Low/Med/High | Medium | 30 days |
+| Priority | Finding Ref | Title | Effort Estimate | Business Impact | Recommended Deadline | Owner / Team |
+|----------|-------------|-------|-----------------|-----------------|----------------------|--------------|
+| P1 — Immediate | F-001 | <Title> | Low / Medium / High | Critical business risk | 24 hours | Security Operations |
+| P2 — Urgent | F-002 | <Title> | Low / Medium / High | Significant exposure | 7 days | Cloud Engineering |
+| P3 — Planned | F-003 | <Title> | Low / Medium / High | Moderate risk | 30 days | DevOps |
+| P4 — Scheduled | F-004 | <Title> | Low / Medium / High | Low risk | 90 days | Infrastructure |
+
+### 7.1 Remediation Roadmap
+Provide a brief narrative outlining the recommended sequence of remediation activities,
+dependencies between findings, and any quick wins that can be addressed immediately.
 
 ---
 
-## 8. Appendix
+## 8. Appendices
 
-### A. Raw API Responses
-Include key API responses that support findings (truncated for readability).
+### Appendix A: Raw API Response Data
+Include key API responses that substantiate findings. Truncate large responses for readability
+while preserving the critical configuration elements. Each response must include the timestamp,
+API operation called, and the relevant response body.
 
-### B. Glossary
-Define technical terms for non-technical stakeholders.
+### Appendix B: IAM Permissions Required for Remediation
+List the minimum IAM permissions required to execute each remediation action,
+organized by finding reference.
+
+### Appendix C: Glossary of Terms
+Define all technical terms, acronyms, and AWS-specific terminology used in this report
+to ensure accessibility for non-technical stakeholders.
+
+### Appendix D: Assessment Tool Information
+| Parameter | Value |
+|-----------|-------|
+| Assessment Engine | CloudPilot AI v1.0 |
+| AWS SDK Version | aws-sdk v2.1693.0 |
+| Assessment Method | Automated API interrogation |
+| Data Retention | Reports archived with AES-256 encryption |
 
 ---
 
-*Report generated by CloudPilot AI — AWS Cloud Security Intelligence Platform*
-*This report is confidential and intended for authorized recipients only.*
+**CONFIDENTIALITY NOTICE**
+
+This document contains confidential security assessment information pertaining to the AWS
+environment identified above. Distribution is restricted to authorized personnel on a
+need-to-know basis. Unauthorized disclosure, reproduction, or distribution of this report
+or its contents is strictly prohibited.
+
+Report generated by CloudPilot AI — AWS Cloud Security Intelligence Platform.
+Copyright (c) 2024-2025 CloudPilot. All rights reserved.
 
 ═══════════════════════════════════════════════════════
 S3 REPORT ARCHIVAL — AUTOMATIC
@@ -352,7 +438,7 @@ After generating every report, you MUST archive it to S3 in the user's AWS accou
 
   STEP 5 — Confirm archival at the end of the report:
     Add a section:
-    ## 📦 Report Archived
+    ## Report Archived
     **S3 Location:** s3://cloudpilot-reports-<account-id>/reports/<date>/<report-id>.md
     **Encryption:** AES-256 (SSE-S3)
     **Access:** Private (all public access blocked)
@@ -828,7 +914,7 @@ function validatePrivilegeEscalation(service: string, operation: string, params:
       // The agent's system prompt mandates cleanup of simulation resources
       return {
         allowed: true,
-        reason: `⚠️ HIGH-RISK OPERATION: ${service}.${operation} — ${pattern.reason} This call is permitted for authorized security assessments but will be logged to the audit trail.`,
+        reason: `HIGH-RISK OPERATION: ${service}.${operation} — ${pattern.reason} This call is permitted for authorized security assessments but will be logged to the audit trail.`,
         riskLevel: "HIGH_RISK",
       };
     }
@@ -1354,7 +1440,7 @@ serve(async (req) => {
     }
 
     if (!isStreamable) {
-      finalResponseText = "⚠️ Agent reached the maximum number of API iterations. The operation may be too broad — try narrowing your request to a specific service or resource.";
+      finalResponseText = "Agent reached the maximum number of API iterations. The operation may be too broad — try narrowing your request to a specific service or resource.";
     }
 
     // Stream the final response as SSE
