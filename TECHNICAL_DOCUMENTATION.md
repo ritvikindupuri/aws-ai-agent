@@ -40,7 +40,9 @@ By tightly coupling LLM reasoning capabilities with strict, restricted, and audi
 17. [Report Management — S3 Archival, PDF Export & Reports History](#report-management--s3-archival-pdf-export--reports-history)
 18. [UX Enhancements — Thinking Indicator & Permission Error Clarity](#ux-enhancements--thinking-indicator--permission-error-clarity)
 19. [Compliance Frameworks](#compliance-frameworks)
-20. [Conclusion](#conclusion)
+20. [VPC Endpoint Configuration Guide — Fully Private AWS API Routing](#vpc-endpoint-configuration-guide--fully-private-aws-api-routing)
+21. [CloudWatch Automation](#cloudwatch-automation)
+22. [Conclusion](#conclusion)
 
 ### Typical User Query Flow
 
