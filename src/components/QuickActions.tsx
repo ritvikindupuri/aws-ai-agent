@@ -281,6 +281,7 @@ const categoryBorderColors: Record<string, string> = {
   "INCIDENT RESPONSE": "border-orange-500/20",
   "REMEDIATION": "border-yellow-500/20",
   "REPORTING & ALERTS": "border-purple-500/20",
+  "CLOUDWATCH": "border-cyan-500/20",
 };
 
 const QuickActions = ({ onAction, disabled }: QuickActionsProps) => {
