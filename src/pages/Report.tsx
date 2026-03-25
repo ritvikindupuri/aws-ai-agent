@@ -77,7 +77,7 @@ const Report = () => {
       const html2pdf = (await import("html2pdf.js")).default;
       const ts = message ? new Date(message.created_at).toISOString().slice(0, 10) : "report";
       const opt = {
-        margin: [0.5, 0.6, 0.5, 0.6],
+        margin: [0.5, 0.6, 0.5, 0.6] as [number, number, number, number],
         filename: `CloudPilot-Report-${ts}-${messageId?.slice(0, 8)}.pdf`,
         image: { type: "jpeg", quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true, letterRendering: true },

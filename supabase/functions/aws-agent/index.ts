@@ -438,7 +438,7 @@ After generating every report, you MUST archive it to S3 in the user's AWS accou
 
   STEP 5 — Confirm archival at the end of the report:
     Add a section:
-    ## 📦 Report Archived
+    ## Report Archived
     **S3 Location:** s3://cloudpilot-reports-<account-id>/reports/<date>/<report-id>.md
     **Encryption:** AES-256 (SSE-S3)
     **Access:** Private (all public access blocked)
