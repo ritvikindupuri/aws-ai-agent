@@ -687,11 +687,17 @@ Full configuration analysis across all 35 services:
 - **ECR**: Image scanning, repository policies, lifecycle rules
 - **Cognito**: MFA requirements, advanced security, app client settings
 
-#### 2. Attack Simulation (Authorized, Against User's Own Account)
+#### 2. Attack Simulation & Autonomous Defense (Authorized, Against User's Own Account)
 All simulations execute real API calls and follow the mandatory Attack Simulation Lifecycle (Tag → Track → Complete → Cleanup). The agent's ability to execute each simulation depends on the IAM permissions provided—read-only credentials allow enumeration of attack paths, while write credentials enable proof-of-concept execution.
+
+Beyond standard enumeration, the agent supports **AI-vs-AI Attack Simulations** using the dedicated `run_attack_simulation` tool. This orchestrates a controlled attacker agent attempting privilege escalation, lateral movement, or data exfiltration, while the main agent acts as the defender, detecting, explaining, and responding in real-time. This module includes **Dynamic Attack Path Mapping** and a **Unified Risk Scoring Layer**.
+
+An **AI Evasion Testing Module** (`run_evasion_test` tool) is also available to test whether modified attack behavior can slip past existing AWS detections, identifying blind spots before real attackers do.
 
 | Attack Vector | Techniques |
 |--------------|------------|
+| **AI-vs-AI Attack Simulation** | Orchestrated AI attack vs. AI defense simulation with dynamic path mapping and risk scoring. |
+| **Evasion Testing** | Slipping past CloudTrail and GuardDuty detections by modifying attacker behavior (jitter, region-hopping, user-agent spoofing). |
 | **Privilege Escalation** | CreatePolicyVersion, AttachUserPolicy, PassRole abuse, CreateAccessKey on other users, UpdateAssumeRolePolicy, CreateLoginProfile, AddUserToGroup, SetDefaultPolicyVersion, PutUserPolicy, PutRolePolicy, UpdateLoginProfile |
 | **Credential & Secrets Exposure** | EC2 user data scanning, Lambda env var enumeration, SSM Parameter Store audit, Secrets Manager resource policies, stale IAM access keys |
 | **S3 Data Exfiltration** | Public read/write/list testing, cross-account bucket policies, pre-signed URL abuse, replication to untrusted destinations |
@@ -701,6 +707,7 @@ All simulations execute real API calls and follow the mandatory Attack Simulatio
 | **Supply Chain & Third-Party Risk** | Cross-account IAM roles, external S3 bucket policy principals, Lambda layers from external accounts, CloudFormation external imports |
 
 #### 3. Incident Response
+- **Autonomous Incident Response Runbooks:** More than just recommendations, the agent performs automated multi-step containment actions (e.g., snapshotting a suspicious EC2 instance, isolating it with a quarantine security group, revoking credentials, preserving evidence) with an audit pipeline.
 - Live instance isolation (quarantine SG, snapshot, IMDS disable)
 - Credential revocation (deactivate keys, detach policies, invalidate sessions)
 - Forensic evidence preservation (CloudTrail, VPC Flow Logs, S3 access logs)
