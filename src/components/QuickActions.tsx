@@ -231,6 +231,11 @@ const categories = [
         prompt: "Remove outbound HTTPS access to 0.0.0.0/0 from the security group app-sg. Show the exact egress rule preview and wait for confirmation before applying.",
       },
       {
+        icon: ShieldCheck,
+        label: "Confirm Change",
+        prompt: "Confirm",
+      },
+      {
         icon: Shield,
         label: "Enable GuardDuty",
         prompt: "Check GuardDuty status across regions and generate enablement commands. Use real AWS API calls to: query GuardDuty detector status in the current region and adjacent regions (us-east-1, us-west-2, eu-west-1), check if S3 protection, EKS protection, Lambda protection, and RDS protection are enabled on existing detectors. For each gap found, provide the exact AWS CLI command to enable that protection.",
@@ -249,11 +254,6 @@ const categories = [
         icon: Users,
         label: "IAM Scoped Preview",
         prompt: "Prepare a least-privilege IAM policy to give the IAM group contractor-group read-only S3 access to arn:aws:s3:::example-bucket and arn:aws:s3:::example-bucket/* only. Show the preview and wait for confirmation.",
-      },
-      {
-        icon: ShieldCheck,
-        label: "IAM Confirm",
-        prompt: "Confirm",
       },
       {
         icon: Cpu,
