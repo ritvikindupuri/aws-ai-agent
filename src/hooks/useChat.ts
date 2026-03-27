@@ -47,7 +47,7 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
   // Load messages from DB when active conversation changes
   useEffect(() => {
     if (!conversationId) {
-      setMessages([]);
+      setMessages((prev) => prev.length > 0 && prev[0].status === "complete" ? [] : prev);
       setAuditSummary(null);
       return;
     }
@@ -61,16 +61,23 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data }: { data: any[] | null }) => {
         if (data) {
-          setMessages(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            data.map((m: any) => ({
-              id: m.id,
-              role: m.role as MessageRole,
-              content: m.content,
-              status: "complete" as MessageStatus,
-              timestamp: new Date(m.created_at),
-            }))
-          );
+          // Merge fetched data with any optimistic messages we already have locally
+          setMessages((prev) => {
+             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             const fetchedIds = new Set(data.map((m: any) => m.id));
+             const optimisticMessages = prev.filter((m) => !fetchedIds.has(m.id));
+             return [
+               // eslint-disable-next-line @typescript-eslint/no-explicit-any
+               ...data.map((m: any) => ({
+                 id: m.id,
+                 role: m.role as MessageRole,
+                 content: m.content,
+                 status: "complete" as MessageStatus,
+                 timestamp: new Date(m.created_at),
+               })),
+               ...optimisticMessages
+             ];
+          });
         }
       });
   }, [conversationId]);

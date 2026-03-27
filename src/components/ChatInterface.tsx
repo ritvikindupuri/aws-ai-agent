@@ -73,6 +73,10 @@ const ChatInterface = () => {
 
     let convId = currentConvId;
 
+    // Send message optimistically right away before DB call blocks
+    // This makes the UI feel instant for the user's message
+    const sendPromise = sendMessage(trimmed, credentials, convId);
+
     // Create a new conversation if none is active
     if (!convId && user) {
       const title = trimmed.length > 65 ? trimmed.slice(0, 65) + "…" : trimmed;
@@ -85,7 +89,8 @@ const ChatInterface = () => {
       }
     }
 
-    sendMessage(trimmed, credentials, convId);
+    // The actual sendMessage API call has been kicked off already
+    await sendPromise;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
