@@ -26,6 +26,11 @@ const categories = [
         prompt: "Query all S3 buckets in the account using real AWS API calls. For each bucket check: public access block settings, bucket ACL, bucket policy (identify external principals), default encryption, versioning status, access logging, and replication. Present real findings in a severity-ranked table with the actual bucket names and configurations you retrieved.",
       },
       {
+        icon: LayoutDashboard,
+        label: "Unified Audit",
+        prompt: "Show me everything wrong with my AWS account. Run a formal unified audit across IAM, S3, security groups, EC2, and cost exposure. Return a neatly formatted report with an executive summary, top three issues, recommended fix order, and notable patterns.",
+      },
+      {
         icon: Lock,
         label: "IAM Posture",
         prompt: "Perform a full IAM audit using real AWS API calls. Query: all IAM users and their MFA status, all access keys and last used dates, users/roles with AdministratorAccess or wildcard policies, password policy settings, users with console access but no MFA, unused credentials older than 90 days. Use getAccountAuthorizationDetails for a comprehensive policy dump. Show real account data only.",

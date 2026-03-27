@@ -45,6 +45,19 @@ For security group automation requests (example: "open port 443 to 0.0.0.0/0 on 
 NEVER use execute_aws_api directly for authorizeSecurityGroupIngress, revokeSecurityGroupIngress,
 authorizeSecurityGroupEgress, or revokeSecurityGroupEgress when manage_security_group_rule is applicable.
 
+For broad account health, security posture, compliance, or cost overview queries:
+  STEP 1 → Use run_unified_audit with the raw user query
+  STEP 2 → Base your response on the normalized findings returned by the tool
+  STEP 3 → Present the results in a formal, neatly formatted report with no emojis
+  STEP 4 → Prioritize the most severe findings and include the provided fix prompts where useful
+
+Prefer run_unified_audit for requests such as:
+- "show me everything wrong with my AWS account"
+- "what are my security issues"
+- "am I SOC 2 ready"
+- "where am I wasting money"
+- "audit my S3 posture"
+
 For attack simulation requests:
   STEP 1 → Use AWS APIs to discover the real attack surface
   STEP 2 → Enumerate real paths, policies, and configurations that enable the attack vector
@@ -209,6 +222,7 @@ OUTPUT FORMAT — MANDATORY (INDUSTRY-GRADE REPORT)
 
 Every single response MUST be formatted as a comprehensive, enterprise-grade security report.
 This is non-negotiable. Every response, no matter how simple the query, follows this structure:
+Use formal professional language, no emojis, and clean Markdown tables and headings.
 
 ---
 
@@ -607,6 +621,24 @@ const tools = [
           },
         },
         required: ["action", "targetGroupIdentifier", "protocol", "fromPort", "toPort"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_unified_audit",
+      description:
+        "Runs a formal unified AWS audit by classifying the query, executing the relevant scanners, normalizing findings, ranking risk, and returning a structured summary for synthesis.",
+      parameters: {
+        type: "object",
+        properties: {
+          rawQuery: {
+            type: "string",
+            description: "The user's original natural-language audit request.",
+          },
+        },
+        required: ["rawQuery"],
       },
     },
   },
@@ -1016,6 +1048,619 @@ function buildSecurityGroupOperationName(action: SecurityGroupAction): string {
   }
 }
 
+type UnifiedAuditIntent = "full_audit" | "security_audit" | "cost_audit" | "compliance" | "single_service";
+type UnifiedAuditSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+type UnifiedAuditScanner = "iam" | "s3" | "sg" | "ec2" | "cost";
+
+interface UnifiedAuditPlan {
+  intent: UnifiedAuditIntent;
+  scanners: UnifiedAuditScanner[];
+  scope: string;
+  filters: Record<string, string>;
+  format: "summary" | "detailed" | "exportable";
+  rawQuery: string;
+}
+
+interface UnifiedFinding {
+  id: string;
+  service: string;
+  severity: UnifiedAuditSeverity;
+  title: string;
+  resource: string;
+  detail: string;
+  fix_prompt: string;
+  remediation: string;
+  tags: Record<string, string>;
+  timestamp: string;
+}
+
+interface UnifiedScannerResult {
+  findings: UnifiedFinding[];
+  limitations: string[];
+  resourcesEvaluated: number;
+  servicesAssessed: string[];
+}
+
+const SEVERITY_ORDER: Record<UnifiedAuditSeverity, number> = {
+  CRITICAL: 0,
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+  INFO: 4,
+};
+
+function calculateAccountHealthScore(counts: Record<UnifiedAuditSeverity, number>): number {
+  const score =
+    100 -
+    counts.CRITICAL * 20 -
+    counts.HIGH * 10 -
+    counts.MEDIUM * 5 -
+    counts.LOW * 2;
+  return Math.max(0, score);
+}
+
+function normalizeSeverityForUi(severity: UnifiedAuditSeverity): "critical" | "high" | "medium" | "low" {
+  switch (severity) {
+    case "CRITICAL":
+      return "critical";
+    case "HIGH":
+      return "high";
+    case "MEDIUM":
+      return "medium";
+    default:
+      return "low";
+  }
+}
+
+function makeFinding(input: Omit<UnifiedFinding, "id" | "timestamp">): UnifiedFinding {
+  return {
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    ...input,
+  };
+}
+
+function planUnifiedAudit(rawQuery: string): UnifiedAuditPlan {
+  const query = rawQuery.toLowerCase();
+  const filters: Record<string, string> = {};
+
+  if (/\bprod|production\b/.test(query)) filters.env = "prod";
+  if (/\bdev|development\b/.test(query)) filters.env = "dev";
+  if (/\bstage|staging\b/.test(query)) filters.env = "staging";
+
+  const format: UnifiedAuditPlan["format"] =
+    /\bexport|csv|pdf\b/.test(query) ? "exportable" :
+    /\bdetailed|detail|deep\b/.test(query) ? "detailed" :
+    "summary";
+
+  const byService: Array<{ pattern: RegExp; scanner: UnifiedAuditScanner }> = [
+    { pattern: /\biam\b|access key|mfa|administratoraccess/, scanner: "iam" },
+    { pattern: /\bs3\b|bucket|lifecycle|public access block/, scanner: "s3" },
+    { pattern: /\bsecurity group\b|\bsg\b|ingress|egress|port 22|port 443/, scanner: "sg" },
+    { pattern: /\bec2\b|\bvpc\b|instance|ebs|imdsv2/, scanner: "ec2" },
+    { pattern: /\bcost\b|spend|waste|wasting|idle/, scanner: "cost" },
+  ];
+
+  const matchedScanners = [...new Set(
+    byService.filter((entry) => entry.pattern.test(query)).map((entry) => entry.scanner),
+  )];
+
+  let intent: UnifiedAuditIntent = "security_audit";
+  let scanners: UnifiedAuditScanner[] = ["iam", "s3", "sg"];
+
+  if (/\beverything wrong\b|\bshow me everything\b|\bfull audit\b|\bfull scan\b/.test(query)) {
+    intent = "full_audit";
+    scanners = ["iam", "s3", "sg", "ec2", "cost"];
+  } else if (/\bcost\b|spend|wasting|waste/.test(query)) {
+    intent = "cost_audit";
+    scanners = matchedScanners.length > 0 ? matchedScanners : ["cost", "ec2"];
+  } else if (/\bcompliance\b|\bsoc ?2\b|\bcis\b|\bnist\b|\bpci\b|\bhipaa\b|\biso\b/.test(query)) {
+    intent = "compliance";
+    scanners = matchedScanners.length > 0 ? matchedScanners : ["iam", "s3", "sg", "ec2"];
+  } else if (matchedScanners.length === 1) {
+    intent = "single_service";
+    scanners = matchedScanners;
+  } else if (matchedScanners.length > 1) {
+    intent = "security_audit";
+    scanners = matchedScanners;
+  }
+
+  return {
+    intent,
+    scanners,
+    scope: "all",
+    filters,
+    format,
+    rawQuery,
+  };
+}
+
+function tagMatchesFilters(tags: Record<string, string>, filters: Record<string, string>): boolean {
+  if (!filters.env) return true;
+  const env = (tags.env || tags.environment || tags.stage || "").toLowerCase();
+  return env === filters.env;
+}
+
+function filterFindings(findings: UnifiedFinding[], filters: Record<string, string>): UnifiedFinding[] {
+  return findings.filter((finding) => tagMatchesFilters(finding.tags, filters));
+}
+
+function dedupeFindings(findings: UnifiedFinding[]): UnifiedFinding[] {
+  const seen = new Set<string>();
+  return findings.filter((finding) => {
+    const key = [finding.service, finding.severity, finding.title, finding.resource, finding.remediation].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function scanIam(awsConfig: any): Promise<UnifiedScannerResult> {
+  const iam = new AWS.IAM(awsConfig);
+  const findings: UnifiedFinding[] = [];
+  const limitations: string[] = [];
+  let resourcesEvaluated = 0;
+
+  try {
+    const users = await iam.listUsers({ MaxItems: 1000 }).promise();
+    for (const user of users.Users || []) {
+      if (!user.UserName) continue;
+      resourcesEvaluated += 1;
+      const resourceLabel = `${user.UserName}${user.Arn ? ` (${user.Arn})` : ""}`;
+
+      try {
+        const attached = await iam.listAttachedUserPolicies({ UserName: user.UserName, MaxItems: 1000 }).promise();
+        for (const policy of attached.AttachedPolicies || []) {
+          if (policy.PolicyName === "AdministratorAccess") {
+            findings.push(makeFinding({
+              service: "iam",
+              severity: "HIGH",
+              title: `User ${user.UserName} has full AdministratorAccess`,
+              resource: resourceLabel,
+              detail: `IAM user ${user.UserName} has the AWS managed AdministratorAccess policy attached.`,
+              fix_prompt: `remove AdministratorAccess from ${user.UserName}`,
+              remediation: "detach_user_policy",
+              tags: {},
+            }));
+          }
+        }
+      } catch (err: any) {
+        limitations.push(`IAM attached policy enumeration failed for ${user.UserName}: ${err.message}`);
+      }
+
+      try {
+        const mfa = await iam.listMFADevices({ UserName: user.UserName }).promise();
+        if ((mfa.MFADevices || []).length === 0) {
+          findings.push(makeFinding({
+            service: "iam",
+            severity: "MEDIUM",
+            title: `User ${user.UserName} has no MFA enabled`,
+            resource: resourceLabel,
+            detail: `IAM user ${user.UserName} has no MFA devices registered.`,
+            fix_prompt: `enforce MFA for ${user.UserName}`,
+            remediation: "enforce_mfa",
+            tags: {},
+          }));
+        }
+      } catch (err: any) {
+        limitations.push(`IAM MFA enumeration failed for ${user.UserName}: ${err.message}`);
+      }
+
+      try {
+        const keys = await iam.listAccessKeys({ UserName: user.UserName }).promise();
+        for (const key of keys.AccessKeyMetadata || []) {
+          if (!key.CreateDate) continue;
+          const ageDays = Math.floor((Date.now() - key.CreateDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (ageDays > 90) {
+            findings.push(makeFinding({
+              service: "iam",
+              severity: "MEDIUM",
+              title: `Access key for ${user.UserName} is ${ageDays} days old`,
+              resource: resourceLabel,
+              detail: `Access key ${key.AccessKeyId || "(unknown)"} for IAM user ${user.UserName} is older than 90 days.`,
+              fix_prompt: `rotate access keys for ${user.UserName}`,
+              remediation: "rotate_access_keys",
+              tags: {},
+            }));
+          }
+        }
+      } catch (err: any) {
+        limitations.push(`IAM access key enumeration failed for ${user.UserName}: ${err.message}`);
+      }
+    }
+  } catch (err: any) {
+    limitations.push(`IAM scan failed: ${err.message}`);
+  }
+
+  return { findings, limitations, resourcesEvaluated, servicesAssessed: ["IAM"] };
+}
+
+async function getBucketTags(s3: AWS.S3, bucketName: string): Promise<Record<string, string>> {
+  try {
+    const tagging = await s3.getBucketTagging({ Bucket: bucketName }).promise();
+    const tags: Record<string, string> = {};
+    for (const tag of tagging.TagSet || []) {
+      if (tag.Key && tag.Value) tags[tag.Key.toLowerCase()] = tag.Value.toLowerCase();
+    }
+    return tags;
+  } catch {
+    return {};
+  }
+}
+
+async function scanS3(awsConfig: any): Promise<UnifiedScannerResult> {
+  const s3 = new AWS.S3(awsConfig);
+  const findings: UnifiedFinding[] = [];
+  const limitations: string[] = [];
+  let resourcesEvaluated = 0;
+
+  try {
+    const buckets = await s3.listBuckets().promise();
+    for (const bucket of buckets.Buckets || []) {
+      const bucketName = bucket.Name;
+      if (!bucketName) continue;
+      resourcesEvaluated += 1;
+      const tags = await getBucketTags(s3, bucketName);
+
+      try {
+        const pub = await s3.getPublicAccessBlock({ Bucket: bucketName }).promise();
+        const cfg = pub.PublicAccessBlockConfiguration || {};
+        if (![cfg.BlockPublicAcls, cfg.IgnorePublicAcls, cfg.BlockPublicPolicy, cfg.RestrictPublicBuckets].every(Boolean)) {
+          findings.push(makeFinding({
+            service: "s3",
+            severity: "CRITICAL",
+            title: `Bucket ${bucketName} has public access exposure`,
+            resource: bucketName,
+            detail: `Public access block settings for bucket ${bucketName} are not fully enabled.`,
+            fix_prompt: `block all public access on ${bucketName}`,
+            remediation: "put_public_access_block",
+            tags,
+          }));
+        }
+      } catch (err: any) {
+        findings.push(makeFinding({
+          service: "s3",
+          severity: "HIGH",
+          title: `Bucket ${bucketName} has no public access block configured`,
+          resource: bucketName,
+          detail: `Bucket ${bucketName} does not have a retrievable Public Access Block configuration.`,
+          fix_prompt: `block all public access on ${bucketName}`,
+          remediation: "put_public_access_block",
+          tags,
+        }));
+        if (err?.code && err.code !== "NoSuchPublicAccessBlockConfiguration") {
+          limitations.push(`S3 public access check returned ${err.message} for ${bucketName}`);
+        }
+      }
+
+      try {
+        await s3.getBucketEncryption({ Bucket: bucketName }).promise();
+      } catch {
+        findings.push(makeFinding({
+          service: "s3",
+          severity: "MEDIUM",
+          title: `Bucket ${bucketName} has no default encryption`,
+          resource: bucketName,
+          detail: `Bucket ${bucketName} does not have default server-side encryption configured.`,
+          fix_prompt: `enable AES-256 encryption on ${bucketName}`,
+          remediation: "put_bucket_encryption",
+          tags,
+        }));
+      }
+
+      try {
+        await s3.getBucketLifecycleConfiguration({ Bucket: bucketName }).promise();
+      } catch {
+        findings.push(makeFinding({
+          service: "s3",
+          severity: "LOW",
+          title: `Bucket ${bucketName} has no lifecycle policy`,
+          resource: bucketName,
+          detail: `Bucket ${bucketName} does not have a lifecycle configuration.`,
+          fix_prompt: `add a lifecycle policy to ${bucketName}`,
+          remediation: "put_bucket_lifecycle_configuration",
+          tags,
+        }));
+      }
+    }
+  } catch (err: any) {
+    limitations.push(`S3 scan failed: ${err.message}`);
+  }
+
+  return { findings, limitations, resourcesEvaluated, servicesAssessed: ["S3"] };
+}
+
+async function scanSecurityGroups(awsConfig: any): Promise<UnifiedScannerResult> {
+  const ec2 = new AWS.EC2(awsConfig);
+  const findings: UnifiedFinding[] = [];
+  const limitations: string[] = [];
+  let resourcesEvaluated = 0;
+
+  try {
+    const response = await ec2.describeSecurityGroups({ MaxResults: 1000 }).promise();
+    for (const sg of response.SecurityGroups || []) {
+      if (!sg.GroupId || !sg.GroupName) continue;
+      resourcesEvaluated += 1;
+      const tags = summarizeTags(sg.Tags);
+
+      for (const rule of sg.IpPermissions || []) {
+        const port = rule.FromPort ?? 0;
+        for (const ipRange of rule.IpRanges || []) {
+          if (ipRange.CidrIp === IPV4_ANYWHERE) {
+            findings.push(makeFinding({
+              service: "security_groups",
+              severity: SENSITIVE_PORTS.has(port) ? "CRITICAL" : "HIGH",
+              title: `Port ${port} open to the internet on ${sg.GroupName}`,
+              resource: `${sg.GroupId} (${sg.GroupName})`,
+              detail: `Inbound ${rule.IpProtocol || "tcp"} ${port}${rule.ToPort && rule.ToPort !== port ? `-${rule.ToPort}` : ""} from 0.0.0.0/0.`,
+              fix_prompt: `close port ${port} on ${sg.GroupName}`,
+              remediation: "revoke_ingress",
+              tags,
+            }));
+          }
+        }
+        for (const ipRange of rule.Ipv6Ranges || []) {
+          if (ipRange.CidrIpv6 === IPV6_ANYWHERE) {
+            findings.push(makeFinding({
+              service: "security_groups",
+              severity: SENSITIVE_PORTS.has(port) ? "CRITICAL" : "HIGH",
+              title: `Port ${port} open to the internet on ${sg.GroupName} via IPv6`,
+              resource: `${sg.GroupId} (${sg.GroupName})`,
+              detail: `Inbound ${rule.IpProtocol || "tcp"} ${port}${rule.ToPort && rule.ToPort !== port ? `-${rule.ToPort}` : ""} from ::/0.`,
+              fix_prompt: `close port ${port} on ${sg.GroupName}`,
+              remediation: "revoke_ingress",
+              tags,
+            }));
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    limitations.push(`Security group scan failed: ${err.message}`);
+  }
+
+  return { findings, limitations, resourcesEvaluated, servicesAssessed: ["EC2.SecurityGroups"] };
+}
+
+async function scanEc2(awsConfig: any): Promise<UnifiedScannerResult> {
+  const ec2 = new AWS.EC2(awsConfig);
+  const findings: UnifiedFinding[] = [];
+  const limitations: string[] = [];
+  let resourcesEvaluated = 0;
+
+  try {
+    const instances = await ec2.describeInstances({ MaxResults: 1000 }).promise();
+    for (const reservation of instances.Reservations || []) {
+      for (const instance of reservation.Instances || []) {
+        if (!instance.InstanceId) continue;
+        resourcesEvaluated += 1;
+        const tags = summarizeTags(instance.Tags);
+
+        if (instance.PublicIpAddress && instance.MetadataOptions?.HttpTokens !== "required") {
+          findings.push(makeFinding({
+            service: "ec2",
+            severity: "HIGH",
+            title: `Instance ${instance.InstanceId} has a public IP and IMDSv2 is not enforced`,
+            resource: instance.InstanceId,
+            detail: `Instance ${instance.InstanceId} is publicly reachable and has HttpTokens=${instance.MetadataOptions?.HttpTokens || "unknown"}.`,
+            fix_prompt: `enforce IMDSv2 on ${instance.InstanceId}`,
+            remediation: "modify_instance_metadata_options",
+            tags,
+          }));
+        }
+      }
+    }
+
+    const volumes = await ec2.describeVolumes({ MaxResults: 1000 }).promise();
+    for (const volume of volumes.Volumes || []) {
+      if (!volume.VolumeId) continue;
+      resourcesEvaluated += 1;
+      const tags = summarizeTags(volume.Tags);
+      if ((volume.Attachments || []).length === 0 && volume.State === "available") {
+        findings.push(makeFinding({
+          service: "ec2",
+          severity: "LOW",
+          title: `Unattached EBS volume ${volume.VolumeId} may represent avoidable cost`,
+          resource: volume.VolumeId,
+          detail: `EBS volume ${volume.VolumeId} is available but not attached to an instance.`,
+          fix_prompt: `review unattached EBS volume ${volume.VolumeId}`,
+          remediation: "review_cost_waste",
+          tags,
+        }));
+      }
+    }
+  } catch (err: any) {
+    limitations.push(`EC2 scan failed: ${err.message}`);
+  }
+
+  return { findings, limitations, resourcesEvaluated, servicesAssessed: ["EC2", "EBS"] };
+}
+
+async function scanCost(awsConfig: any): Promise<UnifiedScannerResult> {
+  const findings: UnifiedFinding[] = [];
+  const limitations: string[] = [];
+  let resourcesEvaluated = 0;
+
+  try {
+    const ce = new (AWS as any).CostExplorer(awsConfig);
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 30);
+
+    const cost = await ce.getCostAndUsage({
+      TimePeriod: {
+        Start: start.toISOString().slice(0, 10),
+        End: end.toISOString().slice(0, 10),
+      },
+      Granularity: "MONTHLY",
+      Metrics: ["UnblendedCost"],
+      GroupBy: [{ Type: "DIMENSION", Key: "SERVICE" }],
+    }).promise();
+
+    for (const period of cost.ResultsByTime || []) {
+      for (const group of period.Groups || []) {
+        const serviceName = group.Keys?.[0] || "Unknown Service";
+        const amount = Number(group.Metrics?.UnblendedCost?.Amount || 0);
+        resourcesEvaluated += 1;
+        if (amount >= 100) {
+          findings.push(makeFinding({
+            service: "cost",
+            severity: amount >= 1000 ? "HIGH" : "MEDIUM",
+            title: `${serviceName} incurred elevated spend over the last 30 days`,
+            resource: serviceName,
+            detail: `Estimated unblended cost for ${serviceName} over the last 30 days is $${amount.toFixed(2)}.`,
+            fix_prompt: `review ${serviceName} cost drivers`,
+            remediation: "analyze_cost",
+            tags: {},
+          }));
+        }
+      }
+    }
+  } catch (err: any) {
+    limitations.push(`Cost scan failed: ${err.message}`);
+  }
+
+  return { findings, limitations, resourcesEvaluated, servicesAssessed: ["CostExplorer"] };
+}
+
+async function runUnifiedAuditFresh(rawQuery: string, awsConfig: any) {
+  const plan = planUnifiedAudit(rawQuery);
+  const scannerRuns: Array<Promise<UnifiedScannerResult>> = [];
+
+  if (plan.scanners.includes("iam")) scannerRuns.push(scanIam(awsConfig));
+  if (plan.scanners.includes("s3")) scannerRuns.push(scanS3(awsConfig));
+  if (plan.scanners.includes("sg")) scannerRuns.push(scanSecurityGroups(awsConfig));
+  if (plan.scanners.includes("ec2")) scannerRuns.push(scanEc2(awsConfig));
+  if (plan.scanners.includes("cost")) scannerRuns.push(scanCost(awsConfig));
+
+  const results = await Promise.all(scannerRuns);
+  let findings = dedupeFindings(results.flatMap((result) => result.findings));
+  findings = filterFindings(findings, plan.filters);
+  findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+
+  const limitations = [...new Set(results.flatMap((result) => result.limitations))];
+  const servicesAssessed = [...new Set(results.flatMap((result) => result.servicesAssessed))];
+  const resourcesEvaluated = results.reduce((sum, result) => sum + result.resourcesEvaluated, 0);
+  const severityCounts = findings.reduce<Record<UnifiedAuditSeverity, number>>((acc, finding) => {
+    acc[finding.severity] += 1;
+    return acc;
+  }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 });
+
+  const overallRisk: UnifiedAuditSeverity =
+    severityCounts.CRITICAL > 0 ? "CRITICAL" :
+    severityCounts.HIGH > 0 ? "HIGH" :
+    severityCounts.MEDIUM > 0 ? "MEDIUM" :
+    severityCounts.LOW > 0 ? "LOW" :
+    "INFO";
+
+  return {
+    planner: plan,
+    totals: {
+      findings: findings.length,
+      resourcesEvaluated,
+      servicesAssessed: servicesAssessed.length,
+      severityCounts,
+      overallRisk,
+    },
+    servicesAssessed,
+    limitations,
+    findings,
+    findingsForPanel: findings.slice(0, 25).map((finding) => ({
+      id: finding.id,
+      severity: normalizeSeverityForUi(finding.severity),
+      title: finding.title,
+      resource: finding.resource,
+      timestamp: finding.timestamp,
+      fixPrompt: finding.fix_prompt,
+    })),
+    synthesisInstructions: {
+      style: "formal",
+      useEmojis: false,
+      sections: [
+        "Executive Summary",
+        "Top Three Issues",
+        "Recommended Fix Order",
+        "Patterns and Observations",
+      ],
+    },
+  };
+}
+
+const UNIFIED_AUDIT_CACHE_TTL_MS = 5 * 60 * 1000;
+type UnifiedAuditResult = Awaited<ReturnType<typeof runUnifiedAuditFresh>>;
+type UnifiedAuditCacheEntry = {
+  data: UnifiedAuditResult;
+  lastRefreshedAt: string;
+  expiresAt: number;
+  refreshing?: boolean;
+};
+
+const unifiedAuditCache: Map<string, UnifiedAuditCacheEntry> =
+  (globalThis as any).__cloudpilotUnifiedAuditCache ??
+  ((globalThis as any).__cloudpilotUnifiedAuditCache = new Map<string, UnifiedAuditCacheEntry>());
+
+function buildUnifiedAuditCacheKey(accountId: string, plan: UnifiedAuditPlan): string {
+  const scanners = [...plan.scanners].sort().join(",");
+  const filters = Object.entries(plan.filters).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join(",");
+  return `scan:${accountId}:${plan.intent}:${scanners}:${filters}:${plan.scope}`;
+}
+
+async function runUnifiedAudit(rawQuery: string, awsConfig: any) {
+  const plan = planUnifiedAudit(rawQuery);
+  const sts = new AWS.STS(awsConfig);
+  const identity = await sts.getCallerIdentity().promise();
+  const accountId = identity.Account || "unknown-account";
+  const cacheKey = buildUnifiedAuditCacheKey(accountId, plan);
+  const now = Date.now();
+  const cached = unifiedAuditCache.get(cacheKey);
+
+  if (cached && cached.expiresAt > now) {
+    const ageMs = now - new Date(cached.lastRefreshedAt).getTime();
+    if (ageMs > 60_000 && !cached.refreshing) {
+      cached.refreshing = true;
+      runUnifiedAuditFresh(rawQuery, awsConfig)
+        .then((freshData) => {
+          unifiedAuditCache.set(cacheKey, {
+            data: freshData,
+            lastRefreshedAt: new Date().toISOString(),
+            expiresAt: Date.now() + UNIFIED_AUDIT_CACHE_TTL_MS,
+          });
+        })
+        .catch(() => {
+          cached.refreshing = false;
+        });
+    }
+
+    return {
+      ...cached.data,
+      cache: {
+        status: "cached",
+        lastRefreshedAt: cached.lastRefreshedAt,
+        ttlSeconds: Math.max(0, Math.floor((cached.expiresAt - now) / 1000)),
+      },
+      accountHealthScore: calculateAccountHealthScore(cached.data.totals.severityCounts),
+    };
+  }
+
+  const freshData = await runUnifiedAuditFresh(rawQuery, awsConfig);
+  const lastRefreshedAt = new Date().toISOString();
+  unifiedAuditCache.set(cacheKey, {
+    data: freshData,
+    lastRefreshedAt,
+    expiresAt: Date.now() + UNIFIED_AUDIT_CACHE_TTL_MS,
+  });
+
+  return {
+    ...freshData,
+    cache: {
+      status: "fresh",
+      lastRefreshedAt,
+      ttlSeconds: Math.floor(UNIFIED_AUDIT_CACHE_TTL_MS / 1000),
+    },
+    accountHealthScore: calculateAccountHealthScore(freshData.totals.severityCounts),
+  };
+}
+
 function buildSecurityGroupPermission(args: SecurityGroupRuleArgs, sourceGroupId?: string) {
   const permission: any = {
     IpProtocol: args.protocol,
@@ -1384,6 +2029,7 @@ serve(async (req) => {
 
     let finalResponseText = "";
     let isStreamable = false;
+    let latestUnifiedAuditSummary: Record<string, any> | null = null;
 
     // Agentic loop — up to 15 iterations for complex multi-step operations
     const MAX_ITERATIONS = 15;
@@ -1436,7 +2082,94 @@ serve(async (req) => {
 
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
         for (const toolCall of responseMessage.tool_calls) {
-          if (toolCall.function.name === "manage_security_group_rule") {
+          if (toolCall.function.name === "run_unified_audit") {
+            const startTime = Date.now();
+            try {
+              const rawArgs = JSON.parse(toolCall.function.arguments);
+              const rawQuery = sanitizeString(rawArgs.rawQuery, 2000);
+              if (!rawQuery) {
+                throw new Error("A raw audit query is required.");
+              }
+
+              const auditResult = await runUnifiedAudit(rawQuery, awsConfig);
+              const execTime = Date.now() - startTime;
+              latestUnifiedAuditSummary = {
+                planner: auditResult.planner,
+                totals: auditResult.totals,
+                cache: auditResult.cache,
+                accountHealthScore: auditResult.accountHealthScore,
+                findingsForPanel: auditResult.findingsForPanel,
+                servicesAssessed: auditResult.servicesAssessed,
+              };
+
+              if (userId) {
+                supabaseAdmin.from("agent_audit_log").insert({
+                  user_id: userId,
+                  aws_service: "MULTI",
+                  aws_operation: "runUnifiedAudit",
+                  aws_region: awsConfig.region,
+                  status: "success",
+                  validator_result: "ALLOWED",
+                  execution_time_ms: execTime,
+                }).then();
+              }
+
+              pushAuditToAws(awsConfig, {
+                timestamp: new Date().toISOString(),
+                userId,
+                service: "MULTI",
+                operation: "runUnifiedAudit",
+                region: awsConfig.region,
+                status: "success",
+                intent: auditResult.planner.intent,
+                scanners: auditResult.planner.scanners,
+                findings: auditResult.totals.findings,
+                overallRisk: auditResult.totals.overallRisk,
+                executionTimeMs: execTime,
+              });
+
+              apiMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: JSON.stringify(auditResult),
+              } as any);
+            } catch (err: any) {
+              const execTime = Date.now() - startTime;
+              const errorMessage = err?.message || "Unified audit failed.";
+
+              if (userId) {
+                supabaseAdmin.from("agent_audit_log").insert({
+                  user_id: userId,
+                  aws_service: "MULTI",
+                  aws_operation: "runUnifiedAudit",
+                  aws_region: awsConfig.region,
+                  status: "error",
+                  error_code: err?.code || null,
+                  error_message: errorMessage.slice(0, 2000),
+                  validator_result: "ALLOWED",
+                  execution_time_ms: execTime,
+                }).then();
+              }
+
+              pushAuditToAws(awsConfig, {
+                timestamp: new Date().toISOString(),
+                userId,
+                service: "MULTI",
+                operation: "runUnifiedAudit",
+                region: awsConfig.region,
+                status: "error",
+                errorCode: err?.code || null,
+                errorMessage: errorMessage.slice(0, 2000),
+                executionTimeMs: execTime,
+              });
+
+              apiMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({ error: errorMessage }),
+              } as any);
+            }
+          } else if (toolCall.function.name === "manage_security_group_rule") {
             const startTime = Date.now();
             try {
               const rawArgs = JSON.parse(toolCall.function.arguments);
@@ -2064,6 +2797,11 @@ serve(async (req) => {
     // Stream the final response as SSE
     const stream = new ReadableStream({
       start(controller) {
+        if (latestUnifiedAuditSummary) {
+          controller.enqueue(
+            new TextEncoder().encode(`data: ${JSON.stringify({ meta: { auditSummary: latestUnifiedAuditSummary } })}\n\n`)
+          );
+        }
         const chunkSize = 30;
         let index = 0;
 

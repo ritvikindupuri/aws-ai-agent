@@ -9,6 +9,7 @@ export interface Finding {
   title: string;
   resource: string;
   timestamp: Date;
+  fixPrompt?: string;
 }
 
 interface FindingsPanelProps {

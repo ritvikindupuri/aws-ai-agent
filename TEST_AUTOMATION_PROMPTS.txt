@@ -35,3 +35,18 @@ Remove outbound HTTPS access to 0.0.0.0/0 from the security group app-sg. Show t
 
 11. Confirm revoke egress change
 Confirm
+
+
+Unified audit and dashboard test prompts
+
+12. Unified full audit
+Show me everything wrong with my AWS account. Run a formal unified audit across IAM, S3, security groups, EC2, and cost exposure. Return a neatly formatted report with an executive summary, top three issues, recommended fix order, and notable patterns.
+
+13. Security-focused unified audit
+What are my security issues? Run a formal unified audit focused on IAM, S3, security groups, and EC2 exposure, and return a neatly formatted report.
+
+14. Cost-focused unified audit
+Where am I wasting money? Run a formal unified audit focused on cost and EC2 waste, and return a neatly formatted report.
+
+15. SOC2 readiness unified audit
+Am I SOC2 ready? Run a formal compliance-focused unified audit covering IAM, S3, security groups, EC2, encryption, and logging gaps, and return a checklist-style report.

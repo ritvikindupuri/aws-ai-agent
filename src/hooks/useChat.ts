@@ -2,15 +2,53 @@ import { useState, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { ChatMessageData, MessageRole, MessageStatus } from "@/components/ChatMessage";
 import type { AwsCredentials } from "@/components/AwsCredentialsPanel";
+import type { Finding } from "@/components/FindingsPanel";
+
+interface AuditSummary {
+  planner: {
+    intent: string;
+    scanners: string[];
+  };
+  totals: {
+    findings: number;
+    resourcesEvaluated: number;
+    servicesAssessed: number;
+    severityCounts: {
+      CRITICAL: number;
+      HIGH: number;
+      MEDIUM: number;
+      LOW: number;
+      INFO: number;
+    };
+    overallRisk: string;
+  };
+  cache: {
+    status: "fresh" | "cached";
+    lastRefreshedAt: string;
+    ttlSeconds: number;
+  };
+  accountHealthScore: number;
+  findingsForPanel: Array<{
+    id: string;
+    severity: "critical" | "high" | "medium" | "low";
+    title: string;
+    resource: string;
+    timestamp: string;
+    fixPrompt?: string;
+  }>;
+  servicesAssessed: string[];
+}
 
 export const useChat = (conversationId: string | null, notificationEmail?: string) => {
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [auditSummary, setAuditSummary] = useState<AuditSummary | null>(null);
 
   // Load messages from DB when active conversation changes
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
+      setAuditSummary(null);
       return;
     }
     (supabase
@@ -102,6 +140,7 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
           role: m.role,
           content: m.content,
         }));
+        setAuditSummary(null);
 
         // Only send session credentials — never raw keys
         const sessionCreds = credentials.session;
@@ -158,6 +197,10 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
 
             try {
               const parsed = JSON.parse(jsonStr);
+              const auditMeta = parsed.meta?.auditSummary as AuditSummary | undefined;
+              if (auditMeta) {
+                setAuditSummary(auditMeta);
+              }
               const delta = parsed.choices?.[0]?.delta?.content as string | undefined;
               if (delta) upsertAssistant(delta);
             } catch {
@@ -224,7 +267,18 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
     [messages, conversationId, notificationEmail]
   );
 
-  const clearMessages = useCallback(() => setMessages([]), []);
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setAuditSummary(null);
+  }, []);
+  const findings: Finding[] = (auditSummary?.findingsForPanel || []).map((finding) => ({
+    id: finding.id,
+    severity: finding.severity,
+    title: finding.title,
+    resource: finding.resource,
+    timestamp: new Date(finding.timestamp),
+    fixPrompt: finding.fixPrompt,
+  }));
 
-  return { messages, isLoading, sendMessage, clearMessages };
+  return { messages, isLoading, sendMessage, clearMessages, auditSummary, findings };
 };

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Plus, PanelRightOpen, PanelRightClose, LogOut, History, Settings, FileText } from "lucide-react";
+import { Send, Plus, PanelRightOpen, PanelRightClose, LogOut, History, FileText, Gauge } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import ChatMessage from "@/components/ChatMessage";
@@ -22,7 +22,6 @@ const ChatInterface = () => {
   const [credentials, setCredentials] = useState<AwsCredentials | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
-  const [findings] = useState<Finding[]>([]);
   const [notificationEmail, setNotificationEmail] = useState<string>(() => {
     return localStorage.getItem("cloudpilot-notification-email") || "";
   });
@@ -37,7 +36,7 @@ const ChatInterface = () => {
     clearAllHistory,
   } = useChatHistory(user);
 
-  const { messages, isLoading, sendMessage, clearMessages } = useChat(currentConvId, notificationEmail);
+  const { messages, isLoading, sendMessage, clearMessages, auditSummary, findings } = useChat(currentConvId, notificationEmail);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -166,6 +165,14 @@ const ChatInterface = () => {
   const userEmail = user?.email ?? "";
   const userLabel = userEmail.includes("@") ? userEmail.split("@")[0] : userEmail;
 
+  const scoreColor = !auditSummary
+    ? "text-muted-foreground"
+    : auditSummary.accountHealthScore >= 85
+    ? "text-primary"
+    : auditSummary.accountHealthScore >= 65
+    ? "text-warning"
+    : "text-destructive";
+
   return (
     <div className="flex flex-col h-screen max-h-screen bg-background">
       {/* Header */}
@@ -257,7 +264,57 @@ const ChatInterface = () => {
                 )}
 
                 {credentials && (
-                  <div className="w-full animate-fade-in-up">
+                  <div className="w-full animate-fade-in-up space-y-4">
+                    <div className="border border-border rounded-xl bg-card/60 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-mono text-muted-foreground tracking-widest uppercase">Account Health</p>
+                          <div className="flex items-end gap-2 mt-1">
+                            <span className={`text-3xl font-bold ${scoreColor}`}>
+                              {auditSummary ? auditSummary.accountHealthScore : "—"}
+                            </span>
+                            <span className="text-sm text-muted-foreground mb-1">/ 100</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {auditSummary
+                              ? `${auditSummary.totals.overallRisk} overall risk across ${auditSummary.totals.findings} findings`
+                              : "Run the Unified Audit quick action to populate the live score and findings summary."}
+                          </p>
+                        </div>
+                        <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
+                          <Gauge className="w-5 h-5 text-primary" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 mt-4">
+                        {[
+                          { label: "CRIT", value: auditSummary?.totals.severityCounts.CRITICAL ?? 0, className: "text-destructive" },
+                          { label: "HIGH", value: auditSummary?.totals.severityCounts.HIGH ?? 0, className: "text-severity-high" },
+                          { label: "MED", value: auditSummary?.totals.severityCounts.MEDIUM ?? 0, className: "text-severity-medium" },
+                          { label: "LOW", value: auditSummary?.totals.severityCounts.LOW ?? 0, className: "text-severity-low" },
+                        ].map((item) => (
+                          <div key={item.label} className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+                            <p className={`text-sm font-bold ${item.className}`}>{item.value}</p>
+                            <p className="text-[10px] font-mono text-muted-foreground mt-0.5">{item.label}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 grid gap-1.5 text-[11px] text-muted-foreground">
+                        <p>Quick queries:</p>
+                        <button onClick={() => handleQuickAction("Show me everything wrong with my AWS account. Run a formal unified audit across IAM, S3, security groups, EC2, and cost exposure. Return a neatly formatted report with an executive summary, top three issues, recommended fix order, and notable patterns.")} className="text-left hover:text-primary transition-colors">show me everything wrong</button>
+                        <button onClick={() => handleQuickAction("What are my security issues? Run a formal unified audit focused on IAM, S3, security groups, and EC2 exposure, and return a neatly formatted report.")} className="text-left hover:text-primary transition-colors">what are my security issues</button>
+                        <button onClick={() => handleQuickAction("Where am I wasting money? Run a formal unified audit focused on cost and EC2 waste, and return a neatly formatted report.")} className="text-left hover:text-primary transition-colors">where am I wasting money</button>
+                        <button onClick={() => handleQuickAction("Am I SOC2 ready? Run a formal compliance-focused unified audit covering IAM, S3, security groups, EC2, encryption, and logging gaps, and return a checklist-style report.")} className="text-left hover:text-primary transition-colors">am I SOC2 ready</button>
+                      </div>
+
+                      {auditSummary && (
+                        <p className="text-[10px] text-muted-foreground font-mono mt-4">
+                          Cache: {auditSummary.cache.status} · Last refreshed {new Date(auditSummary.cache.lastRefreshedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      )}
+                    </div>
+
                     <QuickActions onAction={handleQuickAction} disabled={isLoading} />
                   </div>
                 )}
@@ -350,12 +407,48 @@ const ChatInterface = () => {
             {/* Notification Email Settings */}
             <NotificationSettings email={notificationEmail} onSave={handleSaveNotificationEmail} />
 
+            {auditSummary && (
+              <div className="border border-border rounded-lg bg-card p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-mono text-muted-foreground tracking-widest uppercase">Health Score</p>
+                    <div className="flex items-end gap-1.5 mt-1">
+                      <span className={`text-2xl font-bold ${scoreColor}`}>{auditSummary.accountHealthScore}</span>
+                      <span className="text-xs text-muted-foreground mb-0.5">/ 100</span>
+                    </div>
+                  </div>
+                  <Gauge className="w-4 h-4 text-primary" />
+                </div>
+                <div className="grid grid-cols-4 gap-1.5 text-center">
+                  <div className="rounded border border-border bg-muted/40 py-1.5">
+                    <p className="text-[11px] font-bold text-destructive">{auditSummary.totals.severityCounts.CRITICAL}</p>
+                    <p className="text-[9px] font-mono text-muted-foreground">CRIT</p>
+                  </div>
+                  <div className="rounded border border-border bg-muted/40 py-1.5">
+                    <p className="text-[11px] font-bold text-severity-high">{auditSummary.totals.severityCounts.HIGH}</p>
+                    <p className="text-[9px] font-mono text-muted-foreground">HIGH</p>
+                  </div>
+                  <div className="rounded border border-border bg-muted/40 py-1.5">
+                    <p className="text-[11px] font-bold text-severity-medium">{auditSummary.totals.severityCounts.MEDIUM}</p>
+                    <p className="text-[9px] font-mono text-muted-foreground">MED</p>
+                  </div>
+                  <div className="rounded border border-border bg-muted/40 py-1.5">
+                    <p className="text-[11px] font-bold text-severity-low">{auditSummary.totals.severityCounts.LOW}</p>
+                    <p className="text-[9px] font-mono text-muted-foreground">LOW</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  Cache: {auditSummary.cache.status} · refreshed {new Date(auditSummary.cache.lastRefreshedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            )}
+
             {/* Findings */}
             <FindingsPanel
               findings={findings}
               onClear={() => {}}
               onInvestigate={(f) =>
-                handleQuickAction(`Investigate finding: ${f.title} on resource ${f.resource}`)
+                handleQuickAction(f.fixPrompt || `Investigate finding: ${f.title} on resource ${f.resource}`)
               }
             />
 
