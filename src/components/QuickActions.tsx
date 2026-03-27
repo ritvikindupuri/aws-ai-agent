@@ -132,6 +132,11 @@ const categories = [
         label: "Threat Detector",
         prompt: "Perform anomaly and IOC pattern matching using real AWS API calls. Query GuardDuty findings, WAF sampled requests, and CloudTrail for known indicators of compromise (IOCs) such as anomalous geolocation logins, Tor exit node activity, or cryptocurrency mining patterns.",
       },
+      {
+        icon: Target,
+        label: "Auto Pen Test",
+        prompt: "Spin up an attack simulation environment: 1) Create a new VPC, Subnet, and Security Group (allow SSH/HTTP from 0.0.0.0/0), 2) Launch an EC2 instance with a vulnerable configuration (e.g., exposing critical infrastructure metadata or overly permissive IAM role), 3) Run an automated penetration test (simulate an attacker exploiting the public exposure or SSRF to grab credentials), 4) Report the findings and attack path in detail. Finally, you must ask me to confirm the deletion of all services created for this simulation to clean up.",
+      },
     ],
   },
   {
