@@ -32,6 +32,31 @@ const categories = [
         prompt: "Show me everything wrong with my AWS account. Run a formal unified audit across IAM, S3, security groups, EC2, and cost exposure. Return a neatly formatted report with an executive summary, top three issues, recommended fix order, and notable patterns.",
       },
       {
+        icon: Gauge,
+        label: "Cost Anomalies",
+        prompt: "Find cost anomalies in my AWS account. Pull the recent cost breakdown, identify spikes or accelerating trends, check for idle EC2 instances, and return a formal summary with recommended actions.",
+      },
+      {
+        icon: ClipboardList,
+        label: "Drift Digest",
+        prompt: "Run a formal overnight drift detection report for my AWS account. Compare the current live state against the stored baseline for security groups, IAM users, and S3 buckets, then return a neatly formatted drift digest with severity-ranked changes, explanations, and fix prompts. Do not use emojis.",
+      },
+      {
+        icon: Users,
+        label: "Org MFA Gaps",
+        prompt: "Which accounts have no MFA enforced? Run a formal organization-wide query and identify accounts where IAM users do not have MFA devices enabled.",
+      },
+      {
+        icon: Archive,
+        label: "Org SCP Inventory",
+        prompt: "What SCPs are applied to the organization? Run a formal organization-wide query and show every service control policy with its current attachments.",
+      },
+      {
+        icon: FileText,
+        label: "Runbook Dry Run",
+        prompt: "Run the cost spike remediation playbook in dry-run mode. Show the full formal step plan, identify which steps are automatic, which require confirmation, and stop before any AWS action step.",
+      },
+      {
         icon: Lock,
         label: "IAM Posture",
         prompt: "Perform a full IAM audit using real AWS API calls. Query: all IAM users and their MFA status, all access keys and last used dates, users/roles with AdministratorAccess or wildcard policies, password policy settings, users with console access but no MFA, unused credentials older than 90 days. Use getAccountAuthorizationDetails for a comprehensive policy dump. Show real account data only.",
@@ -262,6 +287,26 @@ const categories = [
         prompt: "Confirm",
       },
       {
+        icon: Archive,
+        label: "Capture Baseline",
+        prompt: "Capture a confirmed-good baseline for my AWS account covering security groups, IAM users, and S3 buckets.",
+      },
+      {
+        icon: Shield,
+        label: "Org SCP Preview",
+        prompt: "Apply the deny-non-approved-regions SCP to all dev accounts in the organization. Allow only us-east-1 and eu-west-1. Show a formal preview with the exact account count, env breakdown, warnings, and the confirmation phrase required before executing.",
+      },
+      {
+        icon: Users,
+        label: "Guardian Role Status",
+        prompt: "Which accounts have GuardianRole missing? Run a formal organization-wide onboarding status query and identify every account where GuardianExecutionRole cannot be assumed.",
+      },
+      {
+        icon: Bot,
+        label: "S3 Lockdown Runbook",
+        prompt: "Run the public S3 lockdown playbook for customer-data-bucket. Show the formal step plan first and wait for me to say run playbook before executing.",
+      },
+      {
         icon: Shield,
         label: "Enable GuardDuty",
         prompt: "Check GuardDuty status across regions and generate enablement commands. Use real AWS API calls to: query GuardDuty detector status in the current region and adjacent regions (us-east-1, us-west-2, eu-west-1), check if S3 protection, EKS protection, Lambda protection, and RDS protection are enabled on existing detectors. For each gap found, provide the exact AWS CLI command to enable that protection.",
@@ -290,6 +335,16 @@ const categories = [
         icon: Bot,
         label: "Task Automator",
         prompt: "Automate remediation execution using real AWS API calls. Review findings from Security Hub or GuardDuty, map them to standard runbooks, and provide the exact AWS CLI automation commands to remediate the specific issues identified (e.g., closing public buckets, restricting security groups).",
+      },
+      {
+        icon: Bell,
+        label: "Set $200 Budget Rule",
+        prompt: "Alert me if daily spend exceeds $200.",
+      },
+      {
+        icon: BarChart3,
+        label: "Auto-Stop Idle EC2",
+        prompt: "Shut down idle EC2 instances if EC2 spend exceeds $150/day.",
       },
     ],
   },

@@ -167,6 +167,7 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
               messages: historyForApi,
               credentials: sessionCreds,
               notificationEmail: notificationEmail || null,
+              conversationId: targetConvId || null,
             }),
           }
         );
