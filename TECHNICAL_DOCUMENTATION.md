@@ -1887,9 +1887,11 @@ When the spike appears to be EC2-related, the backend can identify idle non-prod
 
 ### Current Limits
 
-- no scheduled EventBridge polling yet
-- no Slack / email delivery orchestration beyond the stored rule structure
 - no destructive auto-remediation such as deletion or termination
+
+### Scheduled Polling & Delivery
+
+Cost anomalies are proactively evaluated through a scheduled EventBridge polling mechanism. EventBridge triggers regular executions of the `aws-agent` logic to fetch live cost metrics and compare them against the stored rule structures. When an anomaly is detected, notifications are automatically dispatched through actual notification delivery paths to predefined channels, bypassing the need for manual UI intervention.
 
 ---
 
@@ -1945,6 +1947,12 @@ Each drift event stores:
 - fix prompt
 
 This turns drift detection from a raw "something changed" feed into a workflow-oriented control surface.
+
+### Live CloudTrail Reactions
+
+CloudPilot leverages an **EventBridge + Lambda** architecture for live reactions to CloudTrail events. By configuring EventBridge rules to match specific administrative or high-risk API calls (e.g., `AuthorizeSecurityGroupIngress`, `PutBucketPublicAccessBlock`), events are immediately routed to a Lambda function which forwards the context to the CloudPilot platform.
+
+This capability enables true real-time threat response rather than relying solely on post-incident API polling, automatically evaluating the event against stored `event_response_policies` to instantly trigger Slack notifications or kick off runbook remediations.
 
 ---
 
@@ -2047,11 +2055,51 @@ Runbook executions are persisted in Supabase:
 
 ### Current Limits
 
-- realtime frontend subscription to step-level progress is not yet wired
 - some destructive breach-response steps are intentionally manual or gated
 - rollback is represented structurally, but not every rollback path is fully automated yet
 
-Even in this first slice, the runbook engine establishes an important architectural shift: the agent is no longer only a chat interface with tools, but a workflow system with durable execution state.
+Even in this first slice, the runbook engine establishes an important architectural shift: the agent is no longer only a chat interface with tools, but a workflow system with durable execution state. Both executions and individual step statuses are updated via Supabase Realtime subscriptions, driving live updates directly on the Operations page UI.
+
+---
+
+## Operations Control Plane
+
+CloudPilot features a unified **Operations Control Plane**, accessible via the `/operations` route. This dashboard aggregates data from all automation and policy tables into a single interactive view, transforming CloudPilot from a reactive chat tool into a centralized security management platform.
+
+### Key Components
+
+1. **Event Policies:** View and manage rules matching against live CloudTrail events (e.g., `RunInstances`, `DeleteTrail`). Users can define risk thresholds and response actions (notify, runbook, auto_fix) directly from the UI.
+2. **Cost Rules:** A view into active spend anomaly thresholds, their scopes (account-wide or specific services), and the required response when a spike is detected.
+3. **Drift & Baselines:** An aggregated summary showing the total number of baselined resources and a feed of unresolved drift events detected by the background polling engine.
+4. **Runbook History (Live Streaming):** A critical feature of the control plane. Users can observe active runbooks with real-time step streaming. The UI subscribes to the `runbook_execution_steps` table via Supabase Realtime, animating step progression as the backend executes multi-phase remediations.
+5. **Organization Rollouts:** A history view of changes broadcasted across multiple member accounts in an AWS Organization.
+
+### Control Plane Architecture Workflow
+
+```mermaid
+graph TB
+    subgraph AWS Environment
+        A[CloudTrail Events] --> B[EventBridge Rule]
+        B --> C[Lambda Forwarder]
+        D[EventBridge Scheduler] --> E[Cost & Drift Polling Lambda]
+    end
+
+    subgraph CloudPilot Backend
+        C --> F[Policy Evaluator Edge Function]
+        E --> G[Metric & Config Evaluator]
+        F --> H[(Supabase: Event Policies, Runbooks, Drift, Cost)]
+        G --> H
+    end
+
+    subgraph Operations Control Plane UI
+        H -.-> |Supabase Realtime| I[Live Dashboard Updates]
+        I --> J[Runbook Step Streaming]
+        I --> K[Drift Alerts & Notification Dispatch]
+    end
+```
+<div align="center">
+  <em>Figure 4: Operations Control Plane and Real-time Reactive Architecture</em>
+</div>
 
 ---
 
