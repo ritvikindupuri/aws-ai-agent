@@ -116,27 +116,32 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
     let isActive = true;
 
     const refreshRunbook = async () => {
-      const { data: executions } = await supabase
-        .from("runbook_executions")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: executions } = await (supabase
+        .from("runbook_executions" as any)
         .select("*")
         .eq("conversation_id", conversationId)
         .order("updated_at", { ascending: false })
-        .limit(1);
+        .limit(1) as any);
 
-      const execution = executions?.[0];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const execution = (executions as any[])?.[0];
       if (!isActive || !execution) {
         if (isActive) setLiveRunbook(null);
         return;
       }
 
-      const { data: steps } = await supabase
-        .from("runbook_execution_steps")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: steps } = await (supabase
+        .from("runbook_execution_steps" as any)
         .select("*")
         .eq("execution_id", execution.id)
-        .order("step_order", { ascending: true });
+        .order("step_order", { ascending: true }) as any);
 
       if (!isActive) return;
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const typedSteps = (steps || []) as any[];
       setLiveRunbook({
         id: execution.id,
         runbookId: execution.runbook_id,
@@ -146,7 +151,7 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
         currentStepIndex: execution.current_step_index,
         lastError: execution.last_error,
         updatedAt: execution.updated_at,
-        steps: (steps || []).map((step) => ({
+        steps: typedSteps.map((step) => ({
           id: step.id,
           stepId: step.step_id,
           stepName: step.step_name,

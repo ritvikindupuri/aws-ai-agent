@@ -136,30 +136,37 @@ const Operations = () => {
       runbooksResp,
       orgResp,
     ] = await Promise.all([
-      supabase.from("event_response_policies").select("*").order("created_at", { ascending: false }).limit(25),
-      supabase.from("cost_automation_rules").select("*").order("created_at", { ascending: false }).limit(25),
-      supabase.from("drift_events").select("*").order("detected_at", { ascending: false }).limit(25),
-      supabase.from("resource_snapshots").select("*").eq("is_baseline", true).order("captured_at", { ascending: false }).limit(100),
-      supabase.from("runbook_executions").select("*").order("updated_at", { ascending: false }).limit(15),
-      supabase.from("org_operation_history").select("*").order("created_at", { ascending: false }).limit(20),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("event_response_policies" as any).select("*").order("created_at", { ascending: false }).limit(25) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("cost_automation_rules" as any).select("*").order("created_at", { ascending: false }).limit(25) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("drift_events" as any).select("*").order("detected_at", { ascending: false }).limit(25) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("resource_snapshots" as any).select("*").eq("is_baseline", true).order("captured_at", { ascending: false }).limit(100) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("runbook_executions" as any).select("*").order("updated_at", { ascending: false }).limit(15) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("org_operation_history" as any).select("*").order("created_at", { ascending: false }).limit(20) as any),
     ]);
 
-    setEventPolicies((policiesResp.data || []) as EventPolicyRow[]);
-    setCostRules((costResp.data || []) as CostRuleRow[]);
-    setDriftEvents((driftResp.data || []) as DriftEventRow[]);
-    setSnapshots((snapshotsResp.data || []) as SnapshotRow[]);
-    const executions = (runbooksResp.data || []) as RunbookExecutionRow[];
+    setEventPolicies((policiesResp.data || []) as unknown as EventPolicyRow[]);
+    setCostRules((costResp.data || []) as unknown as CostRuleRow[]);
+    setDriftEvents((driftResp.data || []) as unknown as DriftEventRow[]);
+    setSnapshots((snapshotsResp.data || []) as unknown as SnapshotRow[]);
+    const executions = (runbooksResp.data || []) as unknown as RunbookExecutionRow[];
     setRunbookExecutions(executions);
-    setOrgHistory((orgResp.data || []) as OrgHistoryRow[]);
+    setOrgHistory((orgResp.data || []) as unknown as OrgHistoryRow[]);
 
     const executionIds = executions.map((execution) => execution.id);
     if (executionIds.length > 0) {
-      const stepsResp = await supabase
-        .from("runbook_execution_steps")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stepsResp = await (supabase
+        .from("runbook_execution_steps" as any)
         .select("*")
         .in("execution_id", executionIds)
-        .order("step_order", { ascending: true });
-      setRunbookSteps((stepsResp.data || []) as RunbookStepRow[]);
+        .order("step_order", { ascending: true }) as any);
+      setRunbookSteps((stepsResp.data || []) as unknown as RunbookStepRow[]);
     } else {
       setRunbookSteps([]);
     }
@@ -222,7 +229,8 @@ const Operations = () => {
   };
 
   const handleTogglePolicy = async (policy: EventPolicyRow, nextValue: boolean) => {
-    await supabase.from("event_response_policies").update({ is_active: nextValue }).eq("id", policy.id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("event_response_policies" as any).update({ is_active: nextValue } as any).eq("id", policy.id) as any);
     setEventPolicies((prev) => prev.map((item) => item.id === policy.id ? { ...item, is_active: nextValue } : item));
   };
 
@@ -245,8 +253,9 @@ const Operations = () => {
       .map((channel) => channel.trim())
       .filter(Boolean);
 
-    await supabase
-      .from("event_response_policies")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase
+      .from("event_response_policies" as any)
       .update({
         name: policyForm.name,
         trigger_event: policyForm.trigger_event,
@@ -254,8 +263,8 @@ const Operations = () => {
         response_type: policyForm.response_type,
         response_action: policyForm.response_action,
         notify_channels: notifyChannels,
-      })
-      .eq("id", editingPolicy.id);
+      } as any)
+      .eq("id", editingPolicy.id) as any);
 
     setEventPolicies((prev) =>
       prev.map((item) =>
