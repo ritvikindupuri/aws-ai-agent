@@ -2853,37 +2853,14 @@ serve(async (req) => {
 
               console.log(`[CloudPilot] AWS API: ${service}.${operation} [${validatorResult.riskLevel}]`, JSON.stringify(args.params ?? {}));
 
-              // Use the shared dynamic module loader (eliminates duplicate switch statement)
-              let module: any;
-              try {
-                module = await loadAwsModule(service);
-              } catch (e) {
-                throw new Error(`AWS service package for '${service}' could not be imported. Ensure the service is supported in SDK v3.`);
-              }
+              // Use aws-executor proxy for the SDK call
+              const commandName = `${operation.charAt(0).toUpperCase() + operation.slice(1)}Command`;
 
-              // Use shared client name map
-              const clientName = V3_CLIENT_NAMES[service] || `${service}Client`;
-
-              const ClientClass = module[clientName];
-              if (!ClientClass) {
-                 throw new Error(`AWS service client '${clientName}' not found for service '${service}'.`);
-              }
-
-              // Handle commands which might need special capitalization (though mostly uppercase first letter works)
-              let commandName = `${operation.charAt(0).toUpperCase() + operation.slice(1)}Command`;
-              const CommandClass = module[commandName];
-              if (!CommandClass) {
-                 throw new Error(`Operation command '${commandName}' not found for service '${service}'. Check the operation name.`);
-              }
-
-              const client = new ClientClass(awsConfig);
-              const command = new CommandClass(args.params || {});
-
-              const result = await withAwsRetry(`${service}.${operation}`, () => client.send(command));
+              const result = await withAwsRetry(`${service}.${operation}`, () =>
+                awsExec(service, commandName, awsConfig, args.params || {})
+              );
               const execTime = Date.now() - startTime;
-              
-              // Extract data, removing non-serializable v3 SDK wrapper properties if needed
-              const { $metadata, ...resultData } = result as any;
+              const resultData = result;
 
               // Truncate very large responses to prevent context overflow
               let resultStr = JSON.stringify(resultData);
