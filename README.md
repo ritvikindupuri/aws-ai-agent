@@ -13,20 +13,23 @@ Real-time AWS security operations. Connect your credentials to audit, investigat
 ```mermaid
 sequenceDiagram
     participant User
-    participant Frontend as "React Frontend"
-    participant Edge as "Supabase Edge Function"
-    participant Gateway as "AI Gateway (Gemini)"
-    participant AWS as "AWS Account"
+    participant Frontend as React Frontend
+    participant Edge as aws-agent
+    participant Classifier as Gemini 2.5 Flash Lite
+    participant Gateway as Gemini 2.5 Flash
+    participant AWS as AWS Account
 
-    User->>Frontend: Enter query & AWS credentials
-    Frontend->>Edge: Send prompt + credentials
-    Edge->>Gateway: Forward prompt + context
+    User->>Frontend: Enter query and AWS credentials
+    Frontend->>Edge: Send prompt + session credentials
+    Edge->>Classifier: Classify intent from query
+    Classifier-->>Edge: Returns intent category
+    Edge->>Gateway: Forward prompt + filtered tools for intent
     Gateway-->>Edge: Returns required AWS tool calls
-    Edge->>AWS: Executes AWS SDK calls
+    Edge->>AWS: Executes AWS SDK calls via aws-executor
     AWS-->>Edge: Returns API response
     Edge->>Gateway: Provide API response context
     Gateway-->>Edge: Synthesizes final analysis
-    Edge-->>Frontend: Streams Markdown response
+    Edge-->>Frontend: Streams Markdown response via SSE
     Frontend-->>User: Displays real-time insights
 ```
 <div align="center">
@@ -37,30 +40,77 @@ sequenceDiagram
 
 1. **User Interaction**: The user accesses the React Frontend, inputs their AWS query (e.g., "Find exposed S3 buckets"), and provides their AWS credentials (either Access Keys or an AssumeRole ARN).
 2. **Request Handling**: The frontend securely sends the prompt and credentials to the Supabase Edge Function (`aws-agent`), which acts as the backend orchestrator.
-3. **AI Evaluation**: The Edge Function builds the system context (enforcing "zero simulation tolerance") and communicates with the AI Gateway powered by Google Gemini 3 Flash Preview.
-4. **AWS Integration**: When the AI determines it needs data, it requests a tool call to `execute_aws_api`. The Edge Function dynamically instantiates an AWS SDK client locally using the user's provided credentials and executes the requested API call against the user's real AWS account.
-5. **Synthesis & Streaming**: The real API responses are passed back to the AI model. The model synthesizes an executive summary, findings table, detailed analysis, and exact CLI remediation commands. The Edge Function then streams this synthesized response back to the React Frontend for real-time display.
+3. **Intent Classification**: Before engaging the main AI model, `aws-agent` sends the query to Gemini 2.5 Flash Lite for intent classification. The classifier categorizes the query into one of 9 domains (e.g., `security_audit`, `cost_analysis`, `drift_detection`), and only the relevant tool subset is selected for the main agent. This reduces token usage by 40-70% on focused queries.
+4. **AI Evaluation**: The Edge Function builds the system context (enforcing "zero simulation tolerance") and communicates with Gemini 2.5 Flash via the Lovable AI Gateway, providing only the filtered tool definitions for the classified intent.
+5. **AWS Integration**: When the AI determines it needs data, it requests a tool call to `execute_aws_api`. The Edge Function dynamically instantiates an AWS SDK client using the user's provided credentials and executes the requested API call against the user's real AWS account via the `aws-executor` proxy.
+6. **Synthesis & Streaming**: The real API responses are passed back to the AI model. The model synthesizes an executive summary, findings table, detailed analysis, and exact CLI remediation commands. The Edge Function then streams this synthesized response back to the React Frontend for real-time display via SSE.
+
+---
+
+## Smart Intent Router — Two-Model Architecture
+
+CloudPilot AI employs a lightweight LLM-based intent router that classifies each user query before engaging the main agent:
+
+| Component | Model | Purpose |
+|-----------|-------|---------|
+| **Intent Classifier** | Gemini 2.5 Flash Lite | Single-shot query classification into 9 intent categories (~100-200ms) |
+| **Main Agent** | Gemini 2.5 Flash | Multi-iteration agentic loop with filtered tool set (up to 15 iterations) |
+
+### Intent Categories
+
+| Intent | Tools Selected | Example |
+|--------|---------------|---------|
+| `security_audit` | 4 tools | "Audit my S3 buckets" |
+| `cost_analysis` | 3 tools | "Where am I wasting money?" |
+| `drift_detection` | 3 tools | "Show overnight drift" |
+| `org_management` | 3 tools | "Which accounts lack MFA?" |
+| `ops_automation` | 4 tools | "Run incident response playbook" |
+| `attack_simulation` | 3 tools | "Simulate privilege escalation" |
+| `event_automation` | 3 tools | "If anyone opens port 22, close it" |
+| `direct_query` | 1 tool | "List my S3 buckets" |
+| `general` | All 15 tools | Ambiguous or multi-domain queries |
+
+### Why Gemini 2.5 Flash?
+
+- **Lowest latency** among models with strong tool-calling capabilities — critical for an agentic loop with up to 15 iterations
+- **High tool-calling accuracy** with structured JSON schemas at sub-second inference times
+- **~80% lower cost per token** vs Pro-tier models, enabling sustained high-volume security operations
+- **Sufficient reasoning depth** for CloudPilot's highly structured system prompt and deterministic tool-call workflows
+
+---
+
+## Automated Scheduling — pg_cron
+
+The `guardian-scheduler` edge function runs automatically every hour via PostgreSQL's native `pg_cron` extension, eliminating the need for external scheduling services:
+
+- **Schedule**: `0 * * * *` (top of every hour)
+- **Mechanism**: `pg_net` HTTP POST from within the database to the edge function endpoint
+- **Authentication**: `x-guardian-secret` header validates against `GUARDIAN_AUTOMATION_WEBHOOK_SECRET`
+- **Actions**: Cost anomaly scanning, drift detection, and SNS alert dispatch
+
+This approach is simpler than AWS EventBridge because it runs inside the database with zero external dependencies.
 
 ---
 
 ## Key Features
 
 - **Live AWS API Execution**: Connect your credentials to audit, investigate, and remediate cloud infrastructure using real AWS API responses.
-- **Pre-Flight IAM Boundary Checks**: The application automatically evaluates your principal's permissions against critical operations (like listing S3 buckets, EC2 instances, and IAM users) upon connection, presenting a green/red checklist.
-- **PrivateLink / VPC Endpoints**: CloudPilot backend can be deployed inside an AWS VPC with VPC Endpoints (AWS PrivateLink), allowing API calls to never traverse the public internet. By configuring Private DNS in your VPC endpoints, the AWS SDK will automatically route traffic locally.
-- **WORM Audit Logging**: The Supabase backend streams every single AWS SDK call payload directly into an immutable, Write-Once-Read-Many (WORM) S3 bucket controlled by the security team.
+- **Smart Intent Router**: LLM-based query classification selects only relevant tools per query, reducing token usage by 40-70%.
+- **Pre-Flight IAM Boundary Checks**: The application automatically evaluates your principal's permissions upon connection, presenting a green/red checklist.
+- **PrivateLink / VPC Endpoints**: CloudPilot backend can be deployed inside an AWS VPC with VPC Endpoints (AWS PrivateLink), allowing API calls to never traverse the public internet.
+- **WORM Audit Logging**: Every AWS SDK call payload is streamed into an immutable, Write-Once-Read-Many (WORM) S3 bucket.
 - **Automatic Industry-Grade Reports**: Every query generates a structured security report with executive summary, findings table, risk matrix, remediation plan, and compliance mapping.
-- **Email Notifications via AWS SNS**: Configure a notification email in settings — the agent automatically creates an SNS topic, subscribes your email, and sends report summaries after every analysis using your AWS credentials.
+- **Email Notifications via AWS SNS**: Configure a notification email — the agent automatically creates an SNS topic, subscribes your email, and sends report summaries.
 - **Log Analyst & Threat Detector**: Parses and summarizes CloudTrail and CloudWatch logs while utilizing GuardDuty for anomaly and IOC pattern matching.
-- **IP Safety Checking & Automated Actions**: Identifies untrusted IPs based on WAF and EC2 security settings and automates their blocking, alongside revoking IAM credentials when a compromise is detected.
+- **IP Safety Checking & Automated Actions**: Identifies untrusted IPs and automates blocking, alongside revoking IAM credentials when a compromise is detected.
 - **Attack Simulation**: Authorized testing against your own account to discover privilege escalation paths, credential exposure, and lateral movement vectors.
-- **Compliance Scanning**: Automates mapping against major security frameworks including CIS AWS Foundations Benchmark, NIST 800-53, PCI-DSS v4.0, and ISO 27001.
+- **Compliance Scanning**: Automates mapping against CIS AWS Foundations Benchmark, NIST 800-53, PCI-DSS v4.0, ISO 27001, and 13 more frameworks.
 - **Incident Response & Forensics**: Tools for live instance isolation, credential revocation, and forensic evidence preservation.
-- **Task Automator**: Streamlines the execution of standard runbooks for rapid and effective issue remediation using real AWS APIs.
+- **Task Automator**: Streamlines runbook execution for rapid remediation using real AWS APIs.
 - **Actionable Remediation Commands**: Generates exact, context-aware AWS CLI commands to remediate findings immediately.
-- **Reporting & Alerts Engine**: Features a comprehensive reporting suite generating HTML/Markdown output alongside checking severity-tiered alerting setups (Critical/High/Medium/Low via SNS/Lambda).
-- **Operations Control Plane**: A centralized UI dashboard (`/operations`) that aggregates event response policies, saved cost rules, baseline and drift status, runbook history with live step progress, and organization rollout previews/history all in one place.
-- **Real-Time Reactive Automations**: Incorporates EventBridge + Lambda for live CloudTrail reactions and scheduled polling for cost and drift.
+- **Reporting & Alerts Engine**: Generates HTML/Markdown output alongside severity-tiered alerting (Critical/High/Medium/Low via SNS/Lambda).
+- **Operations Control Plane**: A centralized UI dashboard (`/operations`) aggregating event policies, cost rules, drift status, runbook history, and organization rollouts.
+- **Real-Time Reactive Automations**: EventBridge + Lambda for live CloudTrail reactions and pg_cron for scheduled cost and drift polling.
 - **Live Streaming Executions**: Realtime runbook step streaming directly in the UI with actual notification delivery paths.
 
 ---
@@ -69,12 +119,12 @@ sequenceDiagram
 
 Given the power of executing live AWS API calls, CloudPilot AI implements multiple layers of security to protect your environment and ensure safe operations:
 
-- **Zero Simulation Tolerance:** The agent is strictly instructed to **never** fabricate or assume resource states. Every finding and analysis must be backed by a real AWS API response. If it doesn't have the data, it must call the API first.
-- **Service Allowlisting:** The agent is restricted to interacting only with a predefined list of security-relevant AWS services (e.g., IAM, S3, EC2, CloudTrail, GuardDuty). Attempting to call an unauthorized service is immediately blocked.
-- **Destructive Operation Blocklist:** Highly sensitive account-level operations (e.g., `closeAccount`, `leaveOrganization`) and destructive resource-level actions (e.g., `terminateInstances`, `deleteBucket`, `deleteSecret`) are explicitly hardcoded to be blocked by the Edge Function. A programmatic middleware intercepts these calls to prevent catastrophic damage, even in cases of LLM hallucination or prompt injection.
-- **Strict Input Validation & Sanitization:** All user prompts, AWS regions, Access Keys, and Role ARNs undergo strict regex formatting checks and length sanitization to prevent prompt injection or buffer overflow attacks.
-- **Ephemeral Compute Isolation:** The agent logic runs securely within Supabase Edge Functions (Deno isolates). AWS SDK clients are instantiated per-request with localized credentials, guaranteeing zero global state pollution or cross-tenant credential exposure.
-- **Mandatory Simulation Cleanup:** If the agent creates test resources during an authorized attack simulation, it is forced to tag them (e.g., `cloudpilot-simulation=true`), track them, and provide the user an explicit prompt to automatically delete and clean up the environment via API calls.
+- **Zero Simulation Tolerance:** The agent is strictly instructed to **never** fabricate or assume resource states. Every finding must be backed by a real AWS API response.
+- **Service Allowlisting:** The agent is restricted to 35 pre-approved security-relevant AWS services.
+- **Destructive Operation Blocklist:** Highly sensitive operations (e.g., `closeAccount`, `terminateInstances`, `deleteBucket`) are hardcoded to be blocked.
+- **Strict Input Validation & Sanitization:** All inputs undergo strict regex formatting checks and length sanitization.
+- **Ephemeral Compute Isolation:** Agent logic runs in Supabase Edge Functions (Deno isolates) — zero global state or cross-tenant credential exposure.
+- **Mandatory Simulation Cleanup:** Test resources from attack simulations must be tagged, tracked, and cleaned up.
 
 ---
 
@@ -97,9 +147,10 @@ For full details on input validation, rate limiting behavior, and practical impl
 ## Tech Stack
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn-ui, Framer Motion
-- **Backend / API:** Supabase Edge Functions (Deno)
-- **AI Model:** Google Gemini 3 Flash Preview (via Lovable AI Gateway)
-- **Cloud Integration:** AWS SDK for JavaScript v2
+- **Backend / API:** Supabase Edge Functions (Deno), 8 specialized edge functions
+- **AI Models:** Google Gemini 2.5 Flash (main agent) + Gemini 2.5 Flash Lite (intent classifier) via Lovable AI Gateway
+- **Cloud Integration:** AWS SDK for JavaScript v3 (35+ services)
+- **Scheduling:** PostgreSQL pg_cron + pg_net for automated guardian polling
 
 ---
 
@@ -144,7 +195,7 @@ Open your browser to the local URL provided (usually `http://localhost:8080`).
 
 ## IAM Permissions Needed for Automated Actions & Features
 
-While the agent can discover vulnerabilities and format structured reports using read-only credentials, executing automated remediation (Task Automator) or alerting engines requires explicit write permissions in your IAM Role:
+While the agent can discover vulnerabilities using read-only credentials, executing automated remediation requires explicit write permissions:
 
 | Feature Capability | Required IAM Actions |
 |-------------------|----------------------|

@@ -169,59 +169,59 @@ sequenceDiagram
     participant Router as aws-agent-tools
     participant Scanner as aws-agent-scanner
     participant Executor as aws-executor
-    participant AI as Gemini 2.5 Flash<br/>(via AI Gateway)
+    participant AI as Gemini 2.5 Flash via AI Gateway
     participant AWS as User AWS Account
 
-    Note over User,AWS: Example: "Audit all S3 buckets for public access"
+    Note over User,AWS: Example - Audit all S3 buckets for public access
 
-    User->>UI: Types query + presses Enter
+    User->>UI: Types query and presses Enter
     UI->>DB: INSERT user message into messages table
-    UI->>EF: POST /functions/v1/aws-agent<br/>{messages[], credentials}
+    UI->>EF: POST aws-agent with messages and credentials
 
-    Note over EF: Validates inputs:<br/>- Message array length <= 100<br/>- Content length <= 50K chars<br/>- Region regex, Access Key regex<br/>- Requires sessionToken
+    Note over EF: Validates inputs - message count, content length, region regex, requires sessionToken
 
-    EF->>AI: POST /v1/chat/completions<br/>{system prompt, messages, 15 tools, tool_choice: "required"}
+    EF->>AI: POST chat completions with system prompt, messages, 15 tools, tool_choice required
 
-    Note over AI: Iteration 1: tool_choice forced to "required"<br/>AI MUST call a tool before any text
+    Note over AI: Iteration 1 - tool_choice forced to required, AI MUST call a tool before any text
 
-    AI-->>EF: Tool call: execute_aws_api<br/>{service: "S3", operation: "listBuckets"}
+    AI-->>EF: Tool call execute_aws_api - S3 listBuckets
 
-    EF->>Router: POST /aws-agent-tools<br/>{toolCalls: [...], awsConfig, userId}
+    EF->>Router: POST aws-agent-tools with toolCalls, awsConfig, userId
     Router->>Scanner: Dispatch scanner tools
-    Scanner->>Executor: POST /aws-executor<br/>{service: "S3", commandName: "ListBucketsCommand"}
-    Executor->>AWS: S3Client.send(ListBucketsCommand)
-    AWS-->>Executor: {Buckets: [{Name: "my-bucket", ...}]}
-    Executor-->>Scanner: {result: {Buckets: [...]}}
+    Scanner->>Executor: POST aws-executor - S3 ListBucketsCommand
+    Executor->>AWS: S3Client.send ListBucketsCommand
+    AWS-->>Executor: Returns Buckets array
+    Executor-->>Scanner: Returns result with Buckets
     Scanner-->>Router: Tool result
-    Router-->>EF: {results: [...]}
+    Router-->>EF: Aggregated results
 
     EF->>AI: Tool response with real bucket list
 
-    AI-->>EF: Tool call: execute_aws_api<br/>{service: "S3", operation: "getBucketAcl",<br/>params: {Bucket: "my-bucket"}}
+    AI-->>EF: Tool call execute_aws_api - S3 getBucketAcl for my-bucket
 
-    Note over EF: Iterations 2+: tool_choice = "auto"
+    Note over EF: Iterations 2+ use tool_choice auto
 
     EF->>Router: Dispatch tool call
     Router->>Scanner: execute_aws_api
     Scanner->>Executor: S3 GetBucketAclCommand
     Executor->>AWS: Real API call
-    AWS-->>Executor: {Grants: [...]}
+    AWS-->>Executor: Returns Grants array
     Executor-->>Scanner: Result
     Scanner-->>Router: Result
     Router-->>EF: Result
 
     EF->>AI: Tool response with real ACL data
 
-    AI-->>EF: Final response:<br/>Markdown with Executive Summary,<br/>Findings Table, Analysis, Remediation
+    AI-->>EF: Final Markdown response with Executive Summary, Findings Table, Analysis, Remediation
 
-    EF-->>UI: SSE stream (30-char chunks, 8ms intervals)<br/>data: {"choices":[{"delta":{"content":"..."}}]}
+    EF-->>UI: SSE stream in 30-char chunks at 8ms intervals
 
-    UI->>UI: react-markdown renders tables,<br/>code blocks, severity badges
+    UI->>UI: react-markdown renders tables, code blocks, severity badges
 
     UI->>DB: INSERT assistant message into messages table
     UI->>DB: UPDATE conversation.updated_at
 
-    UI-->>User: Real-time security findings<br/>with formatted tables and CLI commands
+    UI-->>User: Real-time security findings with formatted tables and CLI commands
 ```
 
 <div align="center">
@@ -384,27 +384,27 @@ The credential configuration described in Section 3 relies on a critical securit
 
 ```mermaid
 sequenceDiagram
-    participant User as User (Browser)
+    participant User as User Browser
     participant Panel as AwsCredentialsPanel
-    participant Exchange as aws-exchange-credentials<br/>(Edge Function)
+    participant Exchange as aws-exchange-credentials
     participant STS as AWS STS
-    participant Agent as aws-agent<br/>(Edge Function)
+    participant Agent as aws-agent
 
     User->>Panel: Enters raw AWS credentials
-    Panel->>Exchange: POST /aws-exchange-credentials<br/>{method, accessKeyId, secretAccessKey, region}
+    Panel->>Exchange: POST with method, accessKeyId, secretAccessKey, region
 
-    Note over Exchange: Validates format:<br/>ACCESS_KEY_REGEX, AWS_REGION_REGEX
+    Note over Exchange: Validates format using ACCESS_KEY_REGEX and AWS_REGION_REGEX
 
-    Exchange->>STS: STS:GetCallerIdentity()
-    STS-->>Exchange: {Account, Arn, UserId}
-    Exchange->>STS: STS:GetSessionToken(DurationSeconds: 3600)
-    STS-->>Exchange: {AccessKeyId, SecretAccessKey, SessionToken, Expiration}
+    Exchange->>STS: STS GetCallerIdentity
+    STS-->>Exchange: Returns Account, Arn, UserId
+    Exchange->>STS: STS GetSessionToken with DurationSeconds 3600
+    STS-->>Exchange: Returns AccessKeyId, SecretAccessKey, SessionToken, Expiration
 
-    Note over Exchange: SimulatePrincipalPolicy<br/>18 actions tested
+    Note over Exchange: SimulatePrincipalPolicy tests 18 actions
 
-    Exchange-->>Panel: {sessionCredentials, identity, permissions}
+    Exchange-->>Panel: Returns sessionCredentials, identity, permissions
     Note over Panel: Raw keys cleared from memory
-    Panel->>Panel: Stores only session credentials + permissions map
+    Panel->>Panel: Stores only session credentials and permissions map
 
     User->>Agent: Sends query with session credentials ONLY
     Note over Agent: Rejects any request without sessionToken
@@ -543,7 +543,7 @@ Before entering the agentic loop, `aws-agent` invokes Gemini 2.5 Flash Lite (the
 
 ```mermaid
 flowchart TD
-    A[User Query + Conversation Context] --> B[Gemini 2.5 Flash Lite<br/>Intent Classifier]
+    A[User Query + Conversation Context] --> B[Gemini 2.5 Flash Lite Intent Classifier]
     B --> C{Classified Intent}
     C -- security_audit --> D[4 tools selected]
     C -- cost_analysis --> E[3 tools selected]
@@ -554,7 +554,15 @@ flowchart TD
     C -- event_automation --> J[3 tools selected]
     C -- direct_query --> K[1 tool selected]
     C -- general --> L[All 15 tools]
-    D & E & F & G & H & I & J & K & L --> M[Gemini 2.5 Flash<br/>Main Agentic Loop<br/>with filtered tools]
+    D --> M[Gemini 2.5 Flash Main Agentic Loop with filtered tools]
+    E --> M
+    F --> M
+    G --> M
+    H --> M
+    I --> M
+    J --> M
+    K --> M
+    L --> M
 ```
 
 <div align="center">
@@ -571,11 +579,17 @@ This diagram shows the two-stage model architecture:
 
 3. **Main Agent:** Gemini 2.5 Flash receives the full system prompt, conversation history, and the **filtered** tool set. It then enters the standard agentic loop (up to 15 iterations).
 
-**Benefits:**
-- **Token efficiency:** Direct queries use 1 tool definition (~200 tokens) instead of 15 (~3,000 tokens)
-- **Improved accuracy:** The model is less likely to call irrelevant tools when only relevant ones are available
-- **Lower latency:** Fewer tokens in the prompt means faster AI inference
-- **Cost reduction:** Flash Lite classification costs ~10x less than including all tools in every request
+**Why Gemini 2.5 Flash Was Chosen:**
+
+The model selection for CloudPilot AI was driven by three operational requirements specific to an agentic security tool:
+
+- **Latency sensitivity:** Security operations demand fast response times. Gemini 2.5 Flash provides the lowest latency among models with strong tool-calling capabilities, critical for an agentic loop that may iterate up to 15 times per query. Each iteration adds round-trip latency, so a slower model (e.g., GPT-5 or Gemini 2.5 Pro) would compound delays across iterations, making complex audits impractical.
+
+- **Tool-calling accuracy at scale:** CloudPilot exposes 15 complex tools with nested JSON schemas. Gemini 2.5 Flash demonstrates high accuracy in structured tool-call generation while maintaining sub-second inference times — a balance that larger models achieve at 3-5x the cost and latency.
+
+- **Cost efficiency for high-volume usage:** Security teams run dozens of queries per session, each consuming multiple tool-call iterations. Gemini 2.5 Flash costs ~80% less per token than Pro-tier models, making sustained usage economically viable. The two-model architecture further optimizes this: Gemini 2.5 Flash Lite (the cheapest, fastest tier) handles the single-shot classification at ~10x lower cost, while Flash handles the reasoning-intensive agentic loop.
+
+- **Sufficient reasoning depth:** While Pro-tier models offer marginally better reasoning on ambiguous queries, CloudPilot's system prompt and tool-call protocols are highly structured — the model follows deterministic workflows rather than open-ended reasoning. This structured context compensates for any reasoning gap, making Flash's capability level the optimal cost-performance sweet spot.
 
 ### System Prompt Engineering
 
@@ -617,31 +631,31 @@ The edge function exposes **15 tools** to the LLM:
 
 ```mermaid
 flowchart TD
-    A[Receive user query + session credentials] --> B[Validate inputs: messages, content length, sessionToken]
+    A[Receive user query + session credentials] --> B[Validate inputs - messages, content length, sessionToken]
     B --> B2[Intent Classification via Gemini 2.5 Flash Lite]
     B2 --> B3[Select filtered tool subset based on intent]
     B3 --> C[Construct system prompt + filtered tools + credential context]
     C --> D[Iteration i = 0]
-    D --> E{i == 0?}
-    E -- Yes --> F[Call Gemini 2.5 Flash with tool_choice: required]
-    E -- No --> G[Call Gemini 2.5 Flash with tool_choice: auto]
-    F --> H{Response has tool_calls?}
+    D --> E{i == 0}
+    E -- Yes --> F[Call Gemini 2.5 Flash with tool_choice required]
+    E -- No --> G[Call Gemini 2.5 Flash with tool_choice auto]
+    F --> H{Response has tool_calls}
     G --> H
     H -- Yes --> I[Batch ALL tool calls to aws-agent-tools]
     I --> J[Router dispatches to scanner and ops in parallel]
-    J --> K[Scanner/Ops call aws-executor for SDK operations]
+    J --> K[Scanner and Ops call aws-executor for SDK operations]
     K --> L[Collect all tool results]
-    L --> M[Append tool responses to conversation context]
-    M --> N[Increment i]
-    N --> O{i >= 15?}
+    L --> M2[Append tool responses to conversation context]
+    M2 --> N[Increment i]
+    N --> O{i >= 15}
     O -- Yes --> P[Return max-iteration warning]
     O -- No --> D
     H -- No --> Q[Extract final markdown from AI response]
-    Q --> R{Unified audit summary present?}
+    Q --> R{Unified audit summary present}
     R -- Yes --> S[Prepend audit metadata SSE event]
-    R -- No --> T[Stream via SSE: 30-char chunks at 8ms]
+    R -- No --> T[Stream via SSE - 30 char chunks at 8ms]
     S --> T
-    T --> U[Terminate with data: DONE]
+    T --> U[Terminate with data DONE]
 ```
 
 <div align="center">
@@ -687,16 +701,16 @@ The original `aws-agent-tools` function contained all tool logic plus all 35+ `@
 
 ```mermaid
 flowchart TD
-    A[aws-agent] --> B[aws-agent-tools<br/>Router - 75 lines]
+    A[aws-agent] --> B[aws-agent-tools Router - 75 lines]
     B --> C{Classify tool name}
-    C -- "Scanner tools" --> D[aws-agent-scanner<br/>2,987 lines]
-    C -- "Ops tools" --> E[aws-agent-ops<br/>4,572 lines]
-    D --> F[aws-executor<br/>104 lines]
+    C -- Scanner tools --> D[aws-agent-scanner - 2987 lines]
+    C -- Ops tools --> E[aws-agent-ops - 4572 lines]
+    D --> F[aws-executor - 104 lines]
     E --> F
-    F --> G[Dynamic SDK v3 loader<br/>35+ clients]
+    F --> G[Dynamic SDK v3 loader - 35+ clients]
     G --> H[AWS APIs]
 
-    subgraph "Scanner Tools"
+    subgraph Scanner Tools
         D1[execute_aws_api]
         D2[run_unified_audit]
         D3[run_cost_anomaly_scan]
@@ -705,7 +719,7 @@ flowchart TD
         D6[run_drift_detection]
     end
 
-    subgraph "Ops Tools"
+    subgraph Ops Tools
         E1[manage_runbook_execution]
         E2[manage_event_response_policy]
         E3[replay_cloudtrail_events]
@@ -875,13 +889,13 @@ flowchart TD
     B --> C[STS Session-Only Enforcement]
     C --> D[AI System Prompt Constraints]
     D --> E[Tool Call Interception]
-    E --> F{Service Allowlist<br/>35 services}
+    E --> F{Service Allowlist - 35 services}
     F -- Blocked --> G[Error returned to AI]
-    F -- Allowed --> H{Operation Blocklist<br/>5 operations}
+    F -- Allowed --> H{Operation Blocklist - 5 operations}
     H -- Blocked --> G
-    H -- Allowed --> I{Privilege Escalation<br/>Validator}
+    H -- Allowed --> I{Privilege Escalation Validator}
     I -- Blocked --> G
-    I -- Allowed --> J[Response Truncation<br/>100KB max]
+    I -- Allowed --> J[Response Truncation - 100KB max]
     J --> K[Triple-Sink Audit Logging]
     K --> L[AWS API Execution]
 ```
@@ -974,13 +988,13 @@ With the security mechanisms established in Sections 10–11, this section descr
 ```mermaid
 flowchart LR
     A[Agent Tool Call] --> B[Execute AWS SDK via Executor]
-    B --> C{Success or Error?}
+    B --> C{Success or Error}
     C -->|Either| D[Push to CloudWatch Logs]
     C -->|Either| E[Push to WORM S3]
     C -->|Either| F[Insert Supabase Audit Table]
-    D --> G[/cloudpilot/agent-audit Log Group]
-    E --> H[cloudpilot-audit-worm bucket<br/>Object Lock Compliance]
-    F --> I[agent_audit_log<br/>RLS-Protected Table]
+    D --> G[cloudpilot agent-audit Log Group]
+    E --> H[cloudpilot-audit-worm bucket - Object Lock Compliance]
+    F --> I[agent_audit_log - RLS-Protected Table]
 ```
 
 <div align="center">
@@ -1348,11 +1362,11 @@ The AWS SDK v3 used by `aws-executor` resolves service endpoints via DNS. When a
 
 ```mermaid
 graph LR
-    subgraph "User VPC"
-        A[CloudPilot Agent<br/>SDK Call] --> B[VPC DNS Resolver]
-        B --> C[VPC Endpoint<br/>Private IP]
+    subgraph User VPC
+        A[CloudPilot Agent SDK Call] --> B[VPC DNS Resolver]
+        B --> C[VPC Endpoint Private IP]
     end
-    C --> D[AWS Service API<br/>Internal Backbone]
+    C --> D[AWS Service API Internal Backbone]
 ```
 
 <div align="center">
@@ -1638,15 +1652,15 @@ Implemented in `guardian-scheduler` (598 lines), the detector supports:
 
 ```mermaid
 flowchart TD
-    A[Fetch 14-day daily cost data<br/>CostExplorer:GetCostAndUsage] --> B[Parse by service and date]
-    B --> C[Calculate per-service baseline<br/>mean and stdev]
-    C --> D{Z-score > 2.5?}
+    A[Fetch 14-day daily cost data via CostExplorer] --> B[Parse by service and date]
+    B --> C[Calculate per-service baseline - mean and stdev]
+    C --> D{Z-score greater than 2.5}
     D -- Yes --> E[Statistical spike anomaly]
     D -- No --> F[Check user-defined rules]
-    F --> G{Threshold breached?}
+    F --> G{Threshold breached}
     G -- Yes --> H[Threshold breach anomaly]
     G -- No --> I[No anomaly]
-    E --> J[Find idle EC2 instances<br/>CPU < 2% avg over 24h]
+    E --> J[Find idle EC2 instances - CPU under 2 pct avg over 24h]
     H --> J
     J --> K[Generate remediation suggestions]
     K --> L[Publish alert via SNS if configured]
@@ -1684,18 +1698,18 @@ The system captures **resource snapshots** for supported resources and computes 
 
 ```mermaid
 flowchart TD
-    A[Capture baseline<br/>manage_drift_baseline] --> B[Store snapshots with fingerprints]
-    B --> C[Run drift detection<br/>run_drift_detection]
+    A[Capture baseline via manage_drift_baseline] --> B[Store snapshots with fingerprints]
+    B --> C[Run drift detection via run_drift_detection]
     C --> D[Capture current snapshots]
     D --> E[Compare fingerprints]
-    E --> F{Fingerprint changed?}
+    E --> F{Fingerprint changed}
     F -- No --> G[No drift]
     F -- Yes --> H[Compute structured diff]
     H --> I[Score severity]
     I --> J[Generate formal digest]
-    J --> K{Intentional change?}
-    K -- Yes --> L[Acknowledge + update baseline<br/>manage_drift_baseline]
-    K -- No --> M[Alert + recommend fix]
+    J --> K{Intentional change}
+    K -- Yes --> L[Acknowledge and update baseline]
+    K -- No --> M2[Alert and recommend fix]
 ```
 
 <div align="center">
@@ -1742,17 +1756,17 @@ flowchart TD
     C --> D[guardian-event-processor]
     D --> E[Enrich event]
     E --> F[Score risk]
-    F --> G{Actor is Guardian?}
-    G -- Yes --> H[Skip - prevent loops]
+    F --> G{Actor is Guardian}
+    G -- Yes --> H[Skip to prevent loops]
     G -- No --> I[Match against policies]
-    I --> J{Matching policies?}
+    I --> J{Matching policies}
     J -- No --> K[No action]
-    J -- Yes --> L{Response type?}
-    L -- auto_fix --> M[Execute auto-fix]
+    J -- Yes --> L{Response type}
+    L -- auto_fix --> M3[Execute auto-fix]
     L -- notify --> N[Publish SNS alert]
     L -- runbook --> O[Create runbook execution]
     L -- all --> P[All three actions]
-    M --> Q[Record drift event]
+    M3 --> Q[Record drift event]
     N --> Q
     O --> Q
 ```
@@ -1785,9 +1799,9 @@ The guardian-scheduler is invoked automatically via PostgreSQL's `pg_cron` exten
 
 ```mermaid
 flowchart TD
-    A[pg_cron Extension<br/>Hourly: 0 * * * *] --> B[pg_net HTTP POST]
-    B --> C[guardian-scheduler<br/>Edge Function]
-    C --> D{x-guardian-secret<br/>validation}
+    A[pg_cron Extension - Hourly Schedule] --> B[pg_net HTTP POST]
+    B --> C[guardian-scheduler Edge Function]
+    C --> D{x-guardian-secret validation}
     D -- Valid --> E[Cost Anomaly Scan]
     D -- Valid --> F[Drift Detection]
     D -- Invalid --> G[400 Unauthorized]
@@ -1925,25 +1939,25 @@ All automation features from Sections 22–30 converge in the Operations Control
 
 ```mermaid
 graph TB
-    subgraph "AWS Environment"
+    subgraph AWS Environment
         A[CloudTrail Events] --> B[EventBridge Rule]
         B --> C[Lambda Forwarder]
         D[EventBridge Scheduler] --> E[guardian-scheduler]
     end
 
-    subgraph "CloudPilot Backend"
+    subgraph CloudPilot Backend
         C --> F[guardian-event-processor]
         E --> G[Cost and Drift Evaluator]
-        F --> H[(Supabase: Policies, Runbooks, Drift, Cost)]
+        F --> H[(Supabase DB)]
         G --> H
     end
 
-    subgraph "Operations Control Plane UI at /operations"
-        H -.-> |Supabase Realtime| I[Live Dashboard Updates]
+    subgraph Operations Control Plane
+        H -.-> I[Live Dashboard Updates]
         I --> J[Event Policies View]
         I --> K[Cost Rules View]
         I --> L[Drift and Baselines View]
-        I --> M[Runbook History with Step Streaming]
+        I --> M4[Runbook History with Step Streaming]
         I --> N[Organization Rollouts View]
     end
 ```
