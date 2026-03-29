@@ -10,7 +10,12 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:push": "supabase db push",
+    "db:reset": "supabase db reset",
+    "db:status": "supabase migration list",
+    "db:types": "supabase gen types typescript --local > src/integrations/supabase/types.ts",
+    "deploy:functions": "supabase functions deploy aws-agent guardian-scheduler guardian-event-processor"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch-logs": "^3.1019.0",

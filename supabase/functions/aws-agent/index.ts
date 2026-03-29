@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import AWS from "npm:aws-sdk@2.1693.0";
 import { CloudWatchLogsClient, CreateLogGroupCommand, CreateLogStreamCommand, DescribeLogStreamsCommand, PutLogEventsCommand } from "npm:@aws-sdk/client-cloudwatch-logs@3.744.0";
 import { STSClient, GetCallerIdentityCommand } from "npm:@aws-sdk/client-sts@3.744.0";
 import { S3Client, CreateBucketCommand, PutObjectLockConfigurationCommand, PutPublicAccessBlockCommand, PutBucketEncryptionCommand, PutObjectCommand } from "npm:@aws-sdk/client-s3@3.744.0";
@@ -9,6 +10,204 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+function requireEnv(name: string): string {
+  const value = Deno.env.get(name);
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+const REQUIRED_AWS_AGENT_ENVS = {
+  supabaseUrl: requireEnv("SUPABASE_URL"),
+  supabaseServiceRoleKey: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
+  lovableApiKey: requireEnv("LOVABLE_API_KEY"),
+};
+
+AWS.config.update({
+  maxRetries: 4,
+  retryDelayOptions: { base: 250 },
+});
+
+type ErrorCategory =
+  | "validation"
+  | "authentication"
+  | "authorization"
+  | "aws_retryable"
+  | "aws_non_retryable"
+  | "conflict"
+  | "configuration"
+  | "internal";
+
+class CloudPilotError extends Error {
+  code: string;
+  category: ErrorCategory;
+  status: number;
+  retryable: boolean;
+
+  constructor(message: string, options: {
+    code: string;
+    category: ErrorCategory;
+    status?: number;
+    retryable?: boolean;
+  }) {
+    super(message);
+    this.name = "CloudPilotError";
+    this.code = options.code;
+    this.category = options.category;
+    this.status = options.status ?? 500;
+    this.retryable = options.retryable ?? false;
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableAwsError(err: any): boolean {
+  const code = String(err?.code || err?.name || "");
+  const statusCode = Number(err?.statusCode || err?.$metadata?.httpStatusCode || 0);
+  return [
+    "Throttling",
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "RequestLimitExceeded",
+    "ProvisionedThroughputExceededException",
+    "ECONNRESET",
+    "NetworkingError",
+    "TimeoutError",
+    "RequestTimeout",
+    "ServiceUnavailable",
+  ].includes(code) || statusCode === 429 || statusCode >= 500;
+}
+
+async function withAwsRetry<T>(operationName: string, fn: () => Promise<T>, maxAttempts = 4): Promise<T> {
+  let attempt = 0;
+  let lastError: unknown;
+  while (attempt < maxAttempts) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      attempt += 1;
+      if (attempt >= maxAttempts || !isRetryableAwsError(err)) {
+        throw err;
+      }
+      await sleep(250 * Math.pow(2, attempt - 1));
+      console.warn(`[CloudPilot] Retrying AWS operation ${operationName} (attempt ${attempt + 1}/${maxAttempts})`);
+    }
+  }
+  throw lastError;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`);
+  return `{${entries.join(",")}}`;
+}
+
+async function sha256(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function toCloudPilotError(err: any): CloudPilotError {
+  if (err instanceof CloudPilotError) return err;
+  const code = String(err?.code || err?.name || "INTERNAL_ERROR");
+  if (isRetryableAwsError(err)) {
+    return new CloudPilotError(err?.message || "A temporary AWS error occurred. Please retry.", {
+      code,
+      category: "aws_retryable",
+      status: 503,
+      retryable: true,
+    });
+  }
+  if (code.includes("AccessDenied") || code.includes("Unauthorized")) {
+    return new CloudPilotError(err?.message || "AWS rejected the requested operation.", {
+      code,
+      category: "authorization",
+      status: 403,
+    });
+  }
+  return new CloudPilotError(err?.message || "An unexpected internal error occurred.", {
+    code,
+    category: "internal",
+    status: 500,
+  });
+}
+
+async function claimIdempotencyKey(
+  supabaseAdmin: any,
+  userId: string | null,
+  operationName: string,
+  requestKey: string,
+  requestHash: string,
+) {
+  const { data: existing, error: fetchError } = await supabaseAdmin
+    .from("automation_idempotency_keys")
+    .select("*")
+    .eq("operation_name", operationName)
+    .eq("request_key", requestKey)
+    .maybeSingle();
+
+  if (fetchError) throw new CloudPilotError(`Failed to check idempotency state: ${fetchError.message}`, {
+    code: "IDEMPOTENCY_LOOKUP_FAILED",
+    category: "internal",
+  });
+
+  if (existing) {
+    if (existing.request_hash !== requestHash) {
+      throw new CloudPilotError("An idempotency key collision was detected for a different request.", {
+        code: "IDEMPOTENCY_CONFLICT",
+        category: "conflict",
+        status: 409,
+      });
+    }
+    return { existing };
+  }
+
+  const { error: insertError } = await supabaseAdmin.from("automation_idempotency_keys").insert({
+    user_id: userId,
+    operation_name: operationName,
+    request_key: requestKey,
+    request_hash: requestHash,
+    status: "pending",
+  });
+
+  if (insertError) {
+    throw new CloudPilotError(`Failed to create idempotency record: ${insertError.message}`, {
+      code: "IDEMPOTENCY_INSERT_FAILED",
+      category: "internal",
+    });
+  }
+
+  return { existing: null };
+}
+
+async function storeIdempotencySuccess(supabaseAdmin: any, operationName: string, requestKey: string, responsePayload: unknown) {
+  await supabaseAdmin.from("automation_idempotency_keys").update({
+    status: "success",
+    response_payload: responsePayload,
+    updated_at: new Date().toISOString(),
+  }).eq("operation_name", operationName).eq("request_key", requestKey);
+}
+
+async function storeIdempotencyFailure(supabaseAdmin: any, operationName: string, requestKey: string, errorPayload: unknown) {
+  await supabaseAdmin.from("automation_idempotency_keys").update({
+    status: "failed",
+    error_payload: errorPayload,
+    updated_at: new Date().toISOString(),
+  }).eq("operation_name", operationName).eq("request_key", requestKey);
+}
 
 const SYSTEM_PROMPT = `You are CloudPilot AI — an elite AWS cloud security operations agent built exclusively for professional security engineers.
 
@@ -2180,12 +2379,12 @@ async function executeOrgSCPRollout(
 ): Promise<{ policyId: string; policyName: string; results: OrgAccountResult[] }> {
   const org = new AWS.Organizations(awsConfig);
   const policyName = `guardian-${template}-${Date.now()}`;
-  const created = await org.createPolicy({
+  const created = await withAwsRetry("Organizations.createPolicy", () => org.createPolicy({
     Content: JSON.stringify(policyDocument),
     Description: `Guardian managed SCP rollout for template ${template}`,
     Name: policyName,
     Type: "SERVICE_CONTROL_POLICY",
-  }).promise();
+  }).promise());
 
   const policyId = created.Policy?.PolicySummary?.Id;
   if (!policyId) {
@@ -2195,10 +2394,10 @@ async function executeOrgSCPRollout(
   const results = await Promise.all(accounts.map(async (account): Promise<OrgAccountResult> => {
     const started = Date.now();
     try {
-      await org.attachPolicy({
+      await withAwsRetry("Organizations.attachPolicy", () => org.attachPolicy({
         PolicyId: policyId,
         TargetId: account.id,
-      }).promise();
+      }).promise());
       return {
         account_id: account.id,
         account_name: account.name,
@@ -5174,16 +5373,6 @@ async function runUnifiedAuditFresh(rawQuery: string, awsConfig: any) {
 
 const UNIFIED_AUDIT_CACHE_TTL_MS = 5 * 60 * 1000;
 type UnifiedAuditResult = Awaited<ReturnType<typeof runUnifiedAuditFresh>>;
-type UnifiedAuditCacheEntry = {
-  data: UnifiedAuditResult;
-  lastRefreshedAt: string;
-  expiresAt: number;
-  refreshing?: boolean;
-};
-
-const unifiedAuditCache: Map<string, UnifiedAuditCacheEntry> =
-  (globalThis as any).__cloudpilotUnifiedAuditCache ??
-  ((globalThis as any).__cloudpilotUnifiedAuditCache = new Map<string, UnifiedAuditCacheEntry>());
 
 function buildUnifiedAuditCacheKey(accountId: string, plan: UnifiedAuditPlan): string {
   const scanners = [...plan.scanners].sort().join(",");
@@ -5191,57 +5380,71 @@ function buildUnifiedAuditCacheKey(accountId: string, plan: UnifiedAuditPlan): s
   return `scan:${accountId}:${plan.intent}:${scanners}:${filters}:${plan.scope}`;
 }
 
-async function runUnifiedAudit(rawQuery: string, awsConfig: any) {
+async function runUnifiedAudit(rawQuery: string, awsConfig: any, supabaseAdmin: any, userId: string | null) {
   const plan = planUnifiedAudit(rawQuery);
   const sts = new AWS.STS(awsConfig);
-  const identity = await sts.getCallerIdentity().promise();
+  const identity = await withAwsRetry("STS.getCallerIdentity", () => sts.getCallerIdentity().promise());
   const accountId = identity.Account || "unknown-account";
   const cacheKey = buildUnifiedAuditCacheKey(accountId, plan);
-  const now = Date.now();
-  const cached = unifiedAuditCache.get(cacheKey);
+  const nowIso = new Date().toISOString();
 
-  if (cached && cached.expiresAt > now) {
-    const ageMs = now - new Date(cached.lastRefreshedAt).getTime();
-    if (ageMs > 60_000 && !cached.refreshing) {
-      cached.refreshing = true;
-      runUnifiedAuditFresh(rawQuery, awsConfig)
-        .then((freshData) => {
-          unifiedAuditCache.set(cacheKey, {
-            data: freshData,
-            lastRefreshedAt: new Date().toISOString(),
-            expiresAt: Date.now() + UNIFIED_AUDIT_CACHE_TTL_MS,
-          });
-        })
-        .catch(() => {
-          cached.refreshing = false;
-        });
-    }
+  const { data: cached, error: cacheReadError } = await supabaseAdmin
+    .from("unified_audit_cache")
+    .select("*")
+    .eq("cache_key", cacheKey)
+    .gt("expires_at", nowIso)
+    .maybeSingle();
 
+  if (cacheReadError) {
+    throw new CloudPilotError(`Failed to read unified audit cache: ${cacheReadError.message}`, {
+      code: "UNIFIED_AUDIT_CACHE_READ_FAILED",
+      category: "internal",
+    });
+  }
+
+  if (cached?.response) {
+    const cachedData = cached.response as UnifiedAuditResult;
     return {
-      ...cached.data,
+      ...cachedData,
       cache: {
         status: "cached",
-        lastRefreshedAt: cached.lastRefreshedAt,
-        ttlSeconds: Math.max(0, Math.floor((cached.expiresAt - now) / 1000)),
+        lastRefreshedAt: cached.last_refreshed_at,
+        ttlSeconds: Math.max(0, Math.floor((new Date(cached.expires_at).getTime() - Date.now()) / 1000)),
       },
-      accountHealthScore: calculateAccountHealthScore(cached.data.totals.severityCounts),
+      accountHealthScore: calculateAccountHealthScore(cachedData.totals.severityCounts),
     };
   }
 
   const freshData = await runUnifiedAuditFresh(rawQuery, awsConfig);
   const lastRefreshedAt = new Date().toISOString();
-  unifiedAuditCache.set(cacheKey, {
-    data: freshData,
-    lastRefreshedAt,
-    expiresAt: Date.now() + UNIFIED_AUDIT_CACHE_TTL_MS,
+  const expiresAt = new Date(Date.now() + UNIFIED_AUDIT_CACHE_TTL_MS).toISOString();
+
+  const { error: cacheWriteError } = await supabaseAdmin.from("unified_audit_cache").upsert({
+    user_id: userId,
+    account_id: accountId,
+    cache_key: cacheKey,
+    planner: plan,
+    response: freshData,
+    last_refreshed_at: lastRefreshedAt,
+    expires_at: expiresAt,
+    updated_at: lastRefreshedAt,
+  }, {
+    onConflict: "cache_key",
   });
+
+  if (cacheWriteError) {
+    throw new CloudPilotError(`Failed to persist unified audit cache: ${cacheWriteError.message}`, {
+      code: "UNIFIED_AUDIT_CACHE_WRITE_FAILED",
+      category: "internal",
+    });
+  }
 
   return {
     ...freshData,
     cache: {
       status: "fresh",
       lastRefreshedAt,
-      ttlSeconds: Math.floor(UNIFIED_AUDIT_CACHE_TTL_MS / 1000),
+      ttlSeconds: Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000),
     },
     accountHealthScore: calculateAccountHealthScore(freshData.totals.severityCounts),
   };
@@ -5554,8 +5757,8 @@ serve(async (req) => {
 
     // ── Extract user ID from JWT for audit logging ──────────────────────────
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      REQUIRED_AWS_AGENT_ENVS.supabaseUrl,
+      REQUIRED_AWS_AGENT_ENVS.supabaseServiceRoleKey
     );
     let userId: string | null = null;
     const authHeader = req.headers.get("Authorization");
@@ -5613,13 +5816,7 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "LOVABLE_API_KEY is not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const LOVABLE_API_KEY = REQUIRED_AWS_AGENT_ENVS.lovableApiKey;
 
     // Only session-based credentials are accepted — raw keys never reach this endpoint
     const awsConfig = {
@@ -6553,9 +6750,45 @@ serve(async (req) => {
                 continue;
               }
 
+              const orgIdempotencyPayload = {
+                action,
+                scope,
+                scpTemplate,
+                allowedRegions,
+                rollbackPlan,
+                accountIds: resolution.accounts.map((account) => account.id).sort(),
+              };
+              const orgRequestHash = await sha256(stableStringify(orgIdempotencyPayload));
+              const orgRequestKey = `org-operation:${orgRequestHash}`;
+              const orgClaim = await claimIdempotencyKey(
+                supabaseAdmin,
+                userId,
+                "manage_org_operation",
+                orgRequestKey,
+                orgRequestHash,
+              );
+
+              if (orgClaim.existing?.status === "success" && orgClaim.existing.response_payload) {
+                apiMessages.push({
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(orgClaim.existing.response_payload),
+                } as any);
+                continue;
+              }
+
+              if (orgClaim.existing?.status === "pending") {
+                throw new CloudPilotError("This organization rollout is already in progress.", {
+                  code: "IDEMPOTENT_OPERATION_PENDING",
+                  category: "conflict",
+                  status: 409,
+                });
+              }
+
               const execution = await executeOrgSCPRollout(awsConfig, resolution.accounts, scpTemplate, policyDocument);
               const execTime = Date.now() - startTime;
               const summary = buildOrgExecutionSummary(scope, execution.policyName, execution.policyId, execution.results);
+              await storeIdempotencySuccess(supabaseAdmin, "manage_org_operation", orgRequestKey, summary);
               await persistOrgOperationHistory(supabaseAdmin, userId, {
                 action,
                 scope,
@@ -6603,7 +6836,34 @@ serve(async (req) => {
               } as any);
             } catch (err: any) {
               const execTime = Date.now() - startTime;
-              const errorMessage = err?.message || "Organization operation failed.";
+              const typedError = toCloudPilotError(err);
+              const errorMessage = typedError.message || "Organization operation failed.";
+              try {
+                const rawArgs = JSON.parse(toolCall.function.arguments || "{}");
+                const scope = sanitizeString(rawArgs.scope || "all", 128) || "all";
+                const scpTemplate = sanitizeString(rawArgs.scpTemplate, 128) as OrgScpTemplate;
+                const allowedRegions = Array.isArray(rawArgs.allowedRegions)
+                  ? rawArgs.allowedRegions.map((region: unknown) => sanitizeString(region, 64)).filter(Boolean)
+                  : [];
+                const rollbackPlan = sanitizeString(rawArgs.rollbackPlan, 500);
+                const resolution = await resolveOrgScope(scope, awsConfig);
+                const requestHash = await sha256(stableStringify({
+                  action: sanitizeString(rawArgs.action, 64),
+                  scope,
+                  scpTemplate,
+                  allowedRegions,
+                  rollbackPlan,
+                  accountIds: resolution.accounts.map((account) => account.id).sort(),
+                }));
+                await storeIdempotencyFailure(
+                  supabaseAdmin,
+                  "manage_org_operation",
+                  `org-operation:${requestHash}`,
+                  { error: errorMessage, code: typedError.code, category: typedError.category },
+                );
+              } catch {
+                // Best-effort failure recording only.
+              }
 
               if (userId) {
                 supabaseAdmin.from("agent_audit_log").insert({
@@ -6612,7 +6872,7 @@ serve(async (req) => {
                   aws_operation: "manageOrgOperation",
                   aws_region: awsConfig.region,
                   status: "error",
-                  error_code: err?.code || null,
+                  error_code: typedError.code || null,
                   error_message: errorMessage.slice(0, 2000),
                   validator_result: "HIGH_RISK",
                   execution_time_ms: execTime,
@@ -6626,7 +6886,7 @@ serve(async (req) => {
                 operation: "manageOrgOperation",
                 region: awsConfig.region,
                 status: "error",
-                errorCode: err?.code || null,
+                errorCode: typedError.code || null,
                 errorMessage: errorMessage.slice(0, 2000),
                 executionTimeMs: execTime,
               });
@@ -6634,7 +6894,12 @@ serve(async (req) => {
               apiMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
-                content: JSON.stringify({ error: errorMessage }),
+                content: JSON.stringify({
+                  error: errorMessage,
+                  code: typedError.code,
+                  category: typedError.category,
+                  retryable: typedError.retryable,
+                }),
               } as any);
             }
           } else if (toolCall.function.name === "run_unified_audit") {
@@ -6646,7 +6911,7 @@ serve(async (req) => {
                 throw new Error("A raw audit query is required.");
               }
 
-              const auditResult = await runUnifiedAudit(rawQuery, awsConfig);
+              const auditResult = await runUnifiedAudit(rawQuery, awsConfig, supabaseAdmin, userId);
               const execTime = Date.now() - startTime;
               latestUnifiedAuditSummary = {
                 planner: auditResult.planner,
@@ -6690,7 +6955,8 @@ serve(async (req) => {
               } as any);
             } catch (err: any) {
               const execTime = Date.now() - startTime;
-              const errorMessage = err?.message || "Unified audit failed.";
+              const typedError = toCloudPilotError(err);
+              const errorMessage = typedError.message || "Unified audit failed.";
 
               if (userId) {
                 supabaseAdmin.from("agent_audit_log").insert({
@@ -6699,7 +6965,7 @@ serve(async (req) => {
                   aws_operation: "runUnifiedAudit",
                   aws_region: awsConfig.region,
                   status: "error",
-                  error_code: err?.code || null,
+                  error_code: typedError.code || null,
                   error_message: errorMessage.slice(0, 2000),
                   validator_result: "ALLOWED",
                   execution_time_ms: execTime,
@@ -6713,7 +6979,7 @@ serve(async (req) => {
                 operation: "runUnifiedAudit",
                 region: awsConfig.region,
                 status: "error",
-                errorCode: err?.code || null,
+                errorCode: typedError.code || null,
                 errorMessage: errorMessage.slice(0, 2000),
                 executionTimeMs: execTime,
               });
@@ -6721,7 +6987,12 @@ serve(async (req) => {
               apiMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
-                content: JSON.stringify({ error: errorMessage }),
+                content: JSON.stringify({
+                  error: errorMessage,
+                  code: typedError.code,
+                  category: typedError.category,
+                  retryable: typedError.retryable,
+                }),
               } as any);
             }
           } else if (toolCall.function.name === "manage_security_group_rule") {
@@ -6898,26 +7169,61 @@ serve(async (req) => {
                 continue;
               }
 
+              const sgIdempotencyPayload = {
+                region: awsConfig.region,
+                action: args.action,
+                targetGroupId: targetGroup.groupId,
+                sourceGroupId: sourceGroup?.groupId || null,
+                cidr: args.cidr || null,
+                permission,
+              };
+              const sgRequestHash = await sha256(stableStringify(sgIdempotencyPayload));
+              const sgRequestKey = `security-group:${sgRequestHash}`;
+              const sgClaim = await claimIdempotencyKey(
+                supabaseAdmin,
+                userId,
+                "manage_security_group_rule",
+                sgRequestKey,
+                sgRequestHash,
+              );
+
+              if (sgClaim.existing?.status === "success" && sgClaim.existing.response_payload) {
+                apiMessages.push({
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(sgClaim.existing.response_payload),
+                } as any);
+                continue;
+              }
+
+              if (sgClaim.existing?.status === "pending") {
+                throw new CloudPilotError("This security group change is already in progress.", {
+                  code: "IDEMPOTENT_OPERATION_PENDING",
+                  category: "conflict",
+                  status: 409,
+                });
+              }
+
               if (args.action === "allow_ingress") {
-                await ec2.authorizeSecurityGroupIngress({
+                await withAwsRetry("EC2.authorizeSecurityGroupIngress", () => ec2.authorizeSecurityGroupIngress({
                   GroupId: targetGroup.groupId,
                   IpPermissions: [permission],
-                }).promise();
+                }).promise());
               } else if (args.action === "revoke_ingress") {
-                await ec2.revokeSecurityGroupIngress({
+                await withAwsRetry("EC2.revokeSecurityGroupIngress", () => ec2.revokeSecurityGroupIngress({
                   GroupId: targetGroup.groupId,
                   IpPermissions: [permission],
-                }).promise();
+                }).promise());
               } else if (args.action === "allow_egress") {
-                await ec2.authorizeSecurityGroupEgress({
+                await withAwsRetry("EC2.authorizeSecurityGroupEgress", () => ec2.authorizeSecurityGroupEgress({
                   GroupId: targetGroup.groupId,
                   IpPermissions: [permission],
-                }).promise();
+                }).promise());
               } else {
-                await ec2.revokeSecurityGroupEgress({
+                await withAwsRetry("EC2.revokeSecurityGroupEgress", () => ec2.revokeSecurityGroupEgress({
                   GroupId: targetGroup.groupId,
                   IpPermissions: [permission],
-                }).promise();
+                }).promise());
               }
 
               const finalExecTime = Date.now() - startTime;
@@ -6930,6 +7236,13 @@ serve(async (req) => {
                 appliedRule: permission,
                 operation: operationName,
               };
+
+              await storeIdempotencySuccess(
+                supabaseAdmin,
+                "manage_security_group_rule",
+                sgRequestKey,
+                executionResult,
+              );
 
               if (userId) {
                 supabaseAdmin.from("agent_audit_log").insert({
@@ -6964,7 +7277,47 @@ serve(async (req) => {
               } as any);
             } catch (err: any) {
               const execTime = Date.now() - startTime;
-              const errorMessage = err?.message || "Security group automation failed.";
+              const typedError = toCloudPilotError(err);
+              const errorMessage = typedError.message || "Security group automation failed.";
+              if (userHasConfirmedMutation) {
+                try {
+                  const rawArgs = JSON.parse(toolCall.function.arguments);
+                  const args: SecurityGroupRuleArgs = {
+                    action: rawArgs.action,
+                    targetGroupIdentifier: sanitizeSecurityGroupIdentifier(rawArgs.targetGroupIdentifier),
+                    protocol: sanitizeProtocol(rawArgs.protocol),
+                    fromPort: normalizePort(rawArgs.fromPort),
+                    toPort: normalizePort(rawArgs.toPort),
+                    cidr: rawArgs.cidr ? sanitizeCidr(rawArgs.cidr) : undefined,
+                    sourceGroupIdentifier: rawArgs.sourceGroupIdentifier
+                      ? sanitizeSecurityGroupIdentifier(rawArgs.sourceGroupIdentifier)
+                      : undefined,
+                    description: rawArgs.description ? sanitizeString(rawArgs.description, 255) : undefined,
+                  };
+                  const ec2 = new AWS.EC2(awsConfig);
+                  const targetGroup = await resolveSecurityGroup(ec2, args.targetGroupIdentifier);
+                  const sourceGroup = args.sourceGroupIdentifier
+                    ? await resolveSecurityGroup(ec2, args.sourceGroupIdentifier)
+                    : null;
+                  const permission = buildSecurityGroupPermission(args, sourceGroup?.groupId);
+                  const requestHash = await sha256(stableStringify({
+                    region: awsConfig.region,
+                    action: args.action,
+                    targetGroupId: targetGroup.groupId,
+                    sourceGroupId: sourceGroup?.groupId || null,
+                    cidr: args.cidr || null,
+                    permission,
+                  }));
+                  await storeIdempotencyFailure(
+                    supabaseAdmin,
+                    "manage_security_group_rule",
+                    `security-group:${requestHash}`,
+                    { error: errorMessage, code: typedError.code, category: typedError.category },
+                  );
+                } catch {
+                  // Best-effort failure recording only.
+                }
+              }
 
               if (userId) {
                 supabaseAdmin.from("agent_audit_log").insert({
@@ -6973,7 +7326,7 @@ serve(async (req) => {
                   aws_operation: "manageSecurityGroupRule",
                   aws_region: awsConfig.region,
                   status: "error",
-                  error_code: err?.code || null,
+                  error_code: typedError.code || null,
                   error_message: errorMessage.slice(0, 2000),
                   validator_result: "HIGH",
                   execution_time_ms: execTime,
@@ -6987,7 +7340,7 @@ serve(async (req) => {
                 operation: "manageSecurityGroupRule",
                 region: awsConfig.region,
                 status: "error",
-                errorCode: err?.code || null,
+                errorCode: typedError.code || null,
                 errorMessage: errorMessage.slice(0, 2000),
                 executionTimeMs: execTime,
               });
@@ -6995,7 +7348,12 @@ serve(async (req) => {
               apiMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
-                content: JSON.stringify({ error: errorMessage }),
+                content: JSON.stringify({
+                  error: errorMessage,
+                  code: typedError.code,
+                  category: typedError.category,
+                  retryable: typedError.retryable,
+                }),
               } as any);
             }
           } else if (toolCall.function.name === "manage_iam_access") {
@@ -7069,14 +7427,48 @@ serve(async (req) => {
                 continue;
               }
 
+              const idempotencyPayload = {
+                region: awsConfig.region,
+                principalType: plan.args.principalType,
+                principalIdentifier: plan.args.principalIdentifier,
+                policyName: plan.policyName,
+                policyDocument: plan.policyDocument,
+              };
+              const iamRequestHash = await sha256(stableStringify(idempotencyPayload));
+              const iamRequestKey = `iam-access:${iamRequestHash}`;
+              const iamClaim = await claimIdempotencyKey(
+                supabaseAdmin,
+                userId,
+                "manage_iam_access",
+                iamRequestKey,
+                iamRequestHash,
+              );
+
+              if (iamClaim.existing?.status === "success" && iamClaim.existing.response_payload) {
+                apiMessages.push({
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(iamClaim.existing.response_payload),
+                } as any);
+                continue;
+              }
+
+              if (iamClaim.existing?.status === "pending") {
+                throw new CloudPilotError("This IAM change is already in progress.", {
+                  code: "IDEMPOTENT_OPERATION_PENDING",
+                  category: "conflict",
+                  status: 409,
+                });
+              }
+
               const iam = new AWS.IAM(awsConfig);
               await ensureIamPrincipalExists(iam, plan.args.principalType, plan.args.principalIdentifier);
 
-              const createPolicyResult = await iam.createPolicy({
+              const createPolicyResult = await withAwsRetry("IAM.createPolicy", () => iam.createPolicy({
                 PolicyName: plan.policyName,
                 PolicyDocument: JSON.stringify(plan.policyDocument),
                 Description: `Created by CloudPilot IAM automation for ${plan.args.principalType}:${plan.args.principalIdentifier}`,
-              }).promise();
+              }).promise());
 
               const policyArn = createPolicyResult.Policy?.Arn;
               if (!policyArn) {
@@ -7084,20 +7476,20 @@ serve(async (req) => {
               }
 
               if (plan.args.principalType === "group") {
-                await iam.attachGroupPolicy({
+                await withAwsRetry("IAM.attachGroupPolicy", () => iam.attachGroupPolicy({
                   GroupName: plan.args.principalIdentifier,
                   PolicyArn: policyArn,
-                }).promise();
+                }).promise());
               } else if (plan.args.principalType === "role") {
-                await iam.attachRolePolicy({
+                await withAwsRetry("IAM.attachRolePolicy", () => iam.attachRolePolicy({
                   RoleName: plan.args.principalIdentifier,
                   PolicyArn: policyArn,
-                }).promise();
+                }).promise());
               } else {
-                await iam.attachUserPolicy({
+                await withAwsRetry("IAM.attachUserPolicy", () => iam.attachUserPolicy({
                   UserName: plan.args.principalIdentifier,
                   PolicyArn: policyArn,
-                }).promise();
+                }).promise());
               }
 
               const execTime = Date.now() - startTime;
@@ -7112,6 +7504,8 @@ serve(async (req) => {
                 attachOperation: plan.attachOperation,
                 policyDocument: plan.policyDocument,
               };
+
+              await storeIdempotencySuccess(supabaseAdmin, "manage_iam_access", iamRequestKey, executionResult);
 
               if (userId) {
                 supabaseAdmin.from("agent_audit_log").insert({
@@ -7149,7 +7543,25 @@ serve(async (req) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } catch (err: any) {
               const execTime = Date.now() - startTime;
-              const errorMessage = err?.message || "IAM automation failed.";
+              const typedError = toCloudPilotError(err);
+              const errorMessage = typedError.message || "IAM automation failed.";
+              if (userHasConfirmedMutation) {
+                const rawArgs = JSON.parse(toolCall.function.arguments);
+                const plan = buildIamAccessPlan(rawArgs);
+                const requestHash = await sha256(stableStringify({
+                  region: awsConfig.region,
+                  principalType: plan.args.principalType,
+                  principalIdentifier: plan.args.principalIdentifier,
+                  policyName: plan.policyName,
+                  policyDocument: plan.policyDocument,
+                }));
+                await storeIdempotencyFailure(
+                  supabaseAdmin,
+                  "manage_iam_access",
+                  `iam-access:${requestHash}`,
+                  { error: errorMessage, code: typedError.code, category: typedError.category },
+                );
+              }
 
               if (userId) {
                 supabaseAdmin.from("agent_audit_log").insert({
@@ -7158,7 +7570,7 @@ serve(async (req) => {
                   aws_operation: "manageIamAccess",
                   aws_region: awsConfig.region,
                   status: "error",
-                  error_code: err?.code || null,
+                  error_code: typedError.code || null,
                   error_message: errorMessage.slice(0, 2000),
                   validator_result: userHasConfirmedMutation ? "HIGH_RISK" : "ALLOWED",
                   execution_time_ms: execTime,
@@ -7172,7 +7584,7 @@ serve(async (req) => {
                 operation: "manageIamAccess",
                 region: awsConfig.region,
                 status: "error",
-                errorCode: err?.code || null,
+                errorCode: typedError.code || null,
                 errorMessage: errorMessage.slice(0, 2000),
                 executionTimeMs: execTime,
               });
@@ -7180,7 +7592,12 @@ serve(async (req) => {
               apiMessages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
-                content: JSON.stringify({ error: errorMessage }),
+                content: JSON.stringify({
+                  error: errorMessage,
+                  code: typedError.code,
+                  category: typedError.category,
+                  retryable: typedError.retryable,
+                }),
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               } as any);
             }
@@ -7387,20 +7804,20 @@ serve(async (req) => {
 
               const ClientClass = module[clientName];
               if (!ClientClass) {
-                 throw new Error(`AWS service client '${clientName}' not found in package '${packageName}'.`);
+                 throw new Error(`AWS service client '${clientName}' not found for service '${service}'.`);
               }
 
               // Handle commands which might need special capitalization (though mostly uppercase first letter works)
               let commandName = `${operation.charAt(0).toUpperCase() + operation.slice(1)}Command`;
               const CommandClass = module[commandName];
               if (!CommandClass) {
-                 throw new Error(`Operation command '${commandName}' not found in package '${packageName}'. Check the operation name.`);
+                 throw new Error(`Operation command '${commandName}' not found for service '${service}'. Check the operation name.`);
               }
 
               const client = new ClientClass(awsConfig);
               const command = new CommandClass(args.params || {});
 
-              const result = await client.send(command);
+              const result = await withAwsRetry(`${service}.${operation}`, () => client.send(command));
               const execTime = Date.now() - startTime;
               
               // Extract data, removing non-serializable v3 SDK wrapper properties if needed
@@ -7453,9 +7870,10 @@ serve(async (req) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } catch (err: any) {
               const execTime = Date.now() - startTime;
-              console.error("[CloudPilot] AWS SDK Error:", err.message);
+              const typedError = toCloudPilotError(err);
+              console.error("[CloudPilot] AWS SDK Error:", typedError.message);
 
-              let errorDetail = err.message;
+              let errorDetail = typedError.message;
               if (err.name === "AccessDeniedException" || err.name === "AccessDenied" || err.code === "AccessDeniedException" || err.code === "AccessDenied" || err.code === "UnauthorizedAccess" || err.code === "AuthorizationError" || err.$metadata?.httpStatusCode === 403 || err.statusCode === 403) {
                 const svc = service.toLowerCase();
                 const op = operation;
@@ -7473,7 +7891,7 @@ serve(async (req) => {
                   aws_operation: operation || "UNKNOWN",
                   aws_region: awsConfig.region,
                   status: "error",
-                  error_code: err.code || null,
+                  error_code: typedError.code || null,
                   error_message: (errorDetail || "").slice(0, 2000),
                   validator_result: validatorResult.riskLevel,
                   execution_time_ms: execTime,
@@ -7488,7 +7906,7 @@ serve(async (req) => {
                 operation: operation || "UNKNOWN",
                 region: awsConfig.region,
                 status: "error",
-                errorCode: err.name || err.code || null,
+                errorCode: typedError.code || null,
                 errorMessage: (errorDetail || "").slice(0, 2000),
                 validatorResult: validatorResult.riskLevel,
                 executionTimeMs: execTime,
@@ -7499,8 +7917,10 @@ serve(async (req) => {
                 tool_call_id: toolCall.id,
                 content: JSON.stringify({
                   error: errorDetail,
-                  code: err.name || err.code,
-                  statusCode: err.$metadata?.httpStatusCode || err.statusCode,
+                  code: typedError.code,
+                  category: typedError.category,
+                  retryable: typedError.retryable,
+                  statusCode: err.$metadata?.httpStatusCode || err.statusCode || typedError.status,
                 }),
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               } as any);
@@ -7553,9 +7973,15 @@ serve(async (req) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (e: any) {
     console.error("[CloudPilot] Fatal error:", e);
+    const error = toCloudPilotError(e);
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        error: error.message,
+        code: error.code,
+        category: error.category,
+        retryable: error.retryable,
+      }),
+      { status: error.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

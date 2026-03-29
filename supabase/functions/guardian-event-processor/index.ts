@@ -7,7 +7,26 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-guardian-secret",
 };
 
-const AUTOMATION_SECRET = Deno.env.get("GUARDIAN_AUTOMATION_WEBHOOK_SECRET") || "";
+function requireEnv(name: string): string {
+  const value = Deno.env.get(name);
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+const REQUIRED_EVENT_PROCESSOR_ENVS = {
+  automationSecret: requireEnv("GUARDIAN_AUTOMATION_WEBHOOK_SECRET"),
+  supabaseUrl: requireEnv("SUPABASE_URL"),
+  supabaseServiceRoleKey: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
+};
+
+AWS.config.update({
+  maxRetries: 4,
+  retryDelayOptions: { base: 250 },
+});
+
+const AUTOMATION_SECRET = REQUIRED_EVENT_PROCESSOR_ENVS.automationSecret;
 const AWS_REGION_REGEX = /^[a-z]{2}(-[a-z]+-\d+)?$/;
 const ACCESS_KEY_REGEX = /^[A-Z0-9]{16,128}$/;
 const IPV4_ANYWHERE = "0.0.0.0/0";
@@ -402,8 +421,8 @@ serve(async (req) => {
   try {
     const body = await req.json();
     const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      REQUIRED_EVENT_PROCESSOR_ENVS.supabaseUrl,
+      REQUIRED_EVENT_PROCESSOR_ENVS.supabaseServiceRoleKey,
     );
     const userId = await resolveUserId(req, body, supabaseAdmin);
     const awsConfig = buildAwsConfig(body.credentials || {});
@@ -468,8 +487,12 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error?.message || "Event processing failed." }), {
-      status: 500,
+    const status = String(error?.message || "").startsWith("Missing required environment variable") ? 500 : 400;
+    return new Response(JSON.stringify({
+      error: error?.message || "Event processing failed.",
+      category: status === 500 ? "configuration" : "validation",
+    }), {
+      status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
