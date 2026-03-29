@@ -2478,7 +2478,7 @@ serve(async (req) => {
                 content: JSON.stringify({ error: err?.message || "Cost rule creation failed." }),
               } as any);
             }
-      } else if (toolCall.function.name === "run_cost_anomaly_scan") {
+      if (toolCall.function.name === "run_cost_anomaly_scan") {
             const startTime = Date.now();
             try {
               const rawArgs = JSON.parse(toolCall.function.arguments || "{}");

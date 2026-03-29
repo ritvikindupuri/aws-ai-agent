@@ -3176,7 +3176,7 @@ serve(async (req) => {
     const apiMessages: any[] = [];
 
     for (const toolCall of toolCalls) {
-      } else if (toolCall.function.name === "manage_runbook_execution") {
+      if (toolCall.function.name === "manage_runbook_execution") {
             const startTime = Date.now();
             try {
               if (!userId) {
