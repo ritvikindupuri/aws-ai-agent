@@ -5558,13 +5558,12 @@ const WORM_BUCKET_PREFIX = "cloudpilot-audit-worm-";
 async function pushAuditToAws(awsConfig: any, payload: Record<string, any>) {
   try {
     // ── 1. CloudWatch Logs ──────────────────────────────────────────────────
-    const cwl = new CloudWatchLogsClient(awsConfig);
     const groupName = CW_LOG_GROUP;
     const streamName = `agent-${new Date().toISOString().slice(0, 10)}`;
 
     // Ensure log group exists (idempotent)
     try {
-      await cwl.send(new CreateLogGroupCommand({ logGroupName: groupName }));
+      await v3Send("CloudWatchLogs", "CreateLogGroupCommand", awsConfig, { logGroupName: groupName });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (e: any) {
       if (e.name !== "ResourceAlreadyExistsException" && e.code !== "ResourceAlreadyExistsException") throw e;
@@ -5572,18 +5571,18 @@ async function pushAuditToAws(awsConfig: any, payload: Record<string, any>) {
 
     // Ensure log stream exists (idempotent)
     try {
-      await cwl.send(new CreateLogStreamCommand({ logGroupName: groupName, logStreamName: streamName }));
+      await v3Send("CloudWatchLogs", "CreateLogStreamCommand", awsConfig, { logGroupName: groupName, logStreamName: streamName });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (e: any) {
       if (e.name !== "ResourceAlreadyExistsException" && e.code !== "ResourceAlreadyExistsException") throw e;
     }
 
     // Get the upload sequence token
-    const desc = await cwl.send(new DescribeLogStreamsCommand({
+    const desc = await v3Send("CloudWatchLogs", "DescribeLogStreamsCommand", awsConfig, {
       logGroupName: groupName,
       logStreamNamePrefix: streamName,
       limit: 1,
-    }));
+    });
     const seqToken = desc.logStreams?.[0]?.uploadSequenceToken;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -5597,24 +5596,22 @@ async function pushAuditToAws(awsConfig: any, payload: Record<string, any>) {
     };
     if (seqToken) cwParams.sequenceToken = seqToken;
 
-    await cwl.send(new PutLogEventsCommand(cwParams));
+    await v3Send("CloudWatchLogs", "PutLogEventsCommand", awsConfig, cwParams);
 
     // ── 2. WORM S3 (Object Lock — Compliance Mode) ──────────────────────────
-    const sts = new STSClient(awsConfig);
-    const identity = await sts.send(new GetCallerIdentityCommand({}));
+    const identity = await v3Send("STS", "GetCallerIdentityCommand", awsConfig, {});
     const accountId = identity.Account;
     const wormBucket = `${WORM_BUCKET_PREFIX}${accountId}`;
-    const s3 = new S3Client(awsConfig);
 
     // Ensure bucket exists with Object Lock enabled (must be set at creation)
     try {
-      await s3.send(new CreateBucketCommand({
+      await v3Send("S3", "CreateBucketCommand", awsConfig, {
         Bucket: wormBucket,
         ObjectLockEnabledForBucket: true,
-      }));
+      });
 
       // Set default retention — 1 year Compliance mode (immutable)
-      await s3.send(new PutObjectLockConfigurationCommand({
+      await v3Send("S3", "PutObjectLockConfigurationCommand", awsConfig, {
         Bucket: wormBucket,
         ObjectLockConfiguration: {
           ObjectLockEnabled: "Enabled",
@@ -5625,10 +5622,10 @@ async function pushAuditToAws(awsConfig: any, payload: Record<string, any>) {
             },
           },
         },
-      }));
+      });
 
       // Block all public access
-      await s3.send(new PutPublicAccessBlockCommand({
+      await v3Send("S3", "PutPublicAccessBlockCommand", awsConfig, {
         Bucket: wormBucket,
         PublicAccessBlockConfiguration: {
           BlockPublicAcls: true,
@@ -5636,15 +5633,15 @@ async function pushAuditToAws(awsConfig: any, payload: Record<string, any>) {
           BlockPublicPolicy: true,
           RestrictPublicBuckets: true,
         },
-      }));
+      });
 
       // Enable AES-256 encryption
-      await s3.send(new PutBucketEncryptionCommand({
+      await v3Send("S3", "PutBucketEncryptionCommand", awsConfig, {
         Bucket: wormBucket,
         ServerSideEncryptionConfiguration: {
           Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } }],
         },
-      }));
+      });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (e: any) {
       // BucketAlreadyOwnedByYou or BucketAlreadyExists means it's already set up
@@ -5657,13 +5654,13 @@ async function pushAuditToAws(awsConfig: any, payload: Record<string, any>) {
     const ts = payload.timestamp || new Date().toISOString();
     const logKey = `audit/${ts.slice(0, 10)}/${ts.replace(/:/g, "-")}-${crypto.randomUUID()}.json`;
 
-    await s3.send(new PutObjectCommand({
+    await v3Send("S3", "PutObjectCommand", awsConfig, {
       Bucket: wormBucket,
       Key: logKey,
       Body: JSON.stringify(payload, null, 2),
       ContentType: "application/json",
       ServerSideEncryption: "AES256",
-    }));
+    });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (e: any) {
     // Audit failures are non-fatal — log but don't break the agent flow
