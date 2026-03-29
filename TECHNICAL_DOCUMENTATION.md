@@ -21,71 +21,38 @@ By tightly coupling LLM reasoning capabilities with strict, restricted, and audi
 
 ## Table of Contents
 
-1. [System Architecture](#system-architecture)
-2. [Typical User Query Flow](#typical-user-query-flow)
-3. [AWS Credential Configuration & IAM Permissions Impact](#aws-credential-configuration--iam-permissions-impact)
-4. [STS Credential Exchange — Zero Raw Key Transmission](#sts-credential-exchange--zero-raw-key-transmission)
-5. [Frontend Architecture](#frontend-architecture)
-6. [Backend Orchestration — The `aws-agent` Edge Function](#backend-orchestration--the-aws-agent-edge-function)
-7. [AWS Services & Capabilities](#aws-services--capabilities)
-8. [Quick Actions — Pre-Built Security Workflows](#quick-actions--pre-built-security-workflows)
-9. [Security & Safety Mechanisms](#security--safety-mechanisms)
-10. [Privilege Escalation Validator](#privilege-escalation-validator)
-11. [Agent Audit Log — Triple-Sink Architecture (Supabase + CloudWatch + WORM S3)](#agent-audit-log)
-12. [Authentication & User Management](#authentication--user-management)
-13. [Chat History & Persistence](#chat-history--persistence)
-14. [Output Formatting & Markdown Rendering](#output-formatting--markdown-rendering)
-15. [API Limits & Rate Limiting](#api-limits--rate-limiting)
-16. [Email Notifications via AWS SNS](#email-notifications-via-aws-sns)
-17. [Report Management — S3 Archival, PDF Export & Reports History](#report-management--s3-archival-pdf-export--reports-history)
-18. [UX Enhancements — Thinking Indicator & Permission Error Clarity](#ux-enhancements--thinking-indicator--permission-error-clarity)
-19. [Compliance Frameworks](#compliance-frameworks)
-20. [VPC Endpoint Configuration Guide — Fully Private AWS API Routing](#vpc-endpoint-configuration-guide--fully-private-aws-api-routing)
-21. [CloudWatch Automation](#cloudwatch-automation)
-22. [Unified Audit Engine](#unified-audit-engine)
-23. [IAM Automation — Preview, Confirm, Execute](#iam-automation--preview-confirm-execute)
-24. [Security Group Automation — Risk-Gated Mutations](#security-group-automation--risk-gated-mutations)
-25. [Cost Automation — Rules, Anomalies, and Remediation](#cost-automation--rules-anomalies-and-remediation)
-26. [Drift Detection — Baselines, Diffs, and Morning Digests](#drift-detection--baselines-diffs-and-morning-digests)
-27. [AWS Organizations Automation](#aws-organizations-automation)
-28. [Runbook Execution Engine](#runbook-execution-engine)
-29. [Conclusion](#conclusion)
-
-### Typical User Query Flow
-
-To better understand the internal mechanics of the agentic loop, consider a typical user query: **"Do I have any exposed S3 buckets?"**
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Agent Logic
-    participant AWS S3 API
-
-    User->>Agent Logic: "Do I have any exposed S3 buckets?"
-    Note over Agent Logic: Iteration 1
-    Agent Logic->>AWS S3 API: execute_aws_api(service: "S3", operation: "listBuckets")
-    AWS S3 API-->>Agent Logic: Returns List of Buckets (BucketA, BucketB)
-    Note over Agent Logic: Iteration 2
-    Agent Logic->>AWS S3 API: execute_aws_api(service: "S3", operation: "getBucketAcl", params: {Bucket: "BucketA"})
-    AWS S3 API-->>Agent Logic: Returns ACL for BucketA
-    Note over Agent Logic: Iteration 3
-    Agent Logic->>AWS S3 API: execute_aws_api(service: "S3", operation: "getBucketAcl", params: {Bucket: "BucketB"})
-    AWS S3 API-->>Agent Logic: Returns ACL for BucketB
-    Note over Agent Logic: Iteration 4
-    Agent Logic->>User: Synthesis: Streams analysis of BucketA and BucketB with remediation commands
-```
-
-<div align="center">
-  <em>Figure 2: Typical Agent Iteration Loop for an S3 Security Query</em>
-</div>
-
-#### Flow Explanation
-
-1. **Initial Prompt:** The user asks a natural language question.
-2. **First Iteration (Discovery):** The AI determines it needs a list of buckets first. It requests an `execute_aws_api` call for `S3.listBuckets`. The Edge Function executes this and returns the list to the AI.
-3. **Subsequent Iterations (Deep Inspection):** For every bucket found, the AI realizes it needs to inspect the ACLs and Public Access Blocks to answer the user's specific question about "exposure". It fires off multiple tool calls sequentially (or in parallel batches depending on the model's output) for operations like `S3.getBucketAcl` and `S3.getPublicAccessBlock`.
-4. **Data Aggregation:** The Edge Function executes each of these calls and appends the real AWS responses back into the conversation context.
-5. **Final Synthesis:** Once the AI has gathered the specific configurations for all relevant resources, it stops calling tools. It writes a final Markdown response detailing exactly which buckets are exposed, how they are exposed (based on the real ACL/Policy data), and provides the CLI commands to secure them.
+1. [Executive Summary](#executive-summary)
+2. [Allowed AWS Services](#allowed-aws-services)
+3. [System Architecture](#system-architecture)
+4. [Typical User Query Flow](#typical-user-query-flow)
+5. [AWS Credential Configuration & IAM Permissions Impact](#aws-credential-configuration--iam-permissions-impact)
+6. [STS Credential Exchange — Zero Raw Key Transmission](#sts-credential-exchange--zero-raw-key-transmission)
+7. [Frontend Architecture](#frontend-architecture)
+8. [Backend Orchestration — The `aws-agent` Edge Function](#backend-orchestration--the-aws-agent-edge-function)
+9. [AWS Services & Capabilities](#aws-services--capabilities)
+10. [Quick Actions — Pre-Built Security Workflows](#quick-actions--pre-built-security-workflows)
+11. [Security & Safety Mechanisms](#security--safety-mechanisms)
+12. [Privilege Escalation Validator](#privilege-escalation-validator)
+13. [Agent Audit Log](#agent-audit-log)
+14. [Authentication & User Management](#authentication--user-management)
+15. [Chat History & Persistence](#chat-history--persistence)
+16. [Output Formatting & Markdown Rendering](#output-formatting--markdown-rendering)
+17. [API Limits & Rate Limiting](#api-limits--rate-limiting)
+18. [Email Notifications via AWS SNS](#email-notifications-via-aws-sns)
+19. [Report Management — S3 Archival, PDF Export & Reports History](#report-management--s3-archival-pdf-export--reports-history)
+20. [UX Enhancements — Thinking Indicator & Permission Error Clarity](#ux-enhancements--thinking-indicator--permission-error-clarity)
+21. [Compliance Frameworks](#compliance-frameworks)
+22. [VPC Endpoint Configuration Guide — Fully Private AWS API Routing](#vpc-endpoint-configuration-guide--fully-private-aws-api-routing)
+23. [CloudWatch Automation](#cloudwatch-automation)
+24. [Unified Audit Engine](#unified-audit-engine)
+25. [IAM Automation — Preview, Confirm, Execute](#iam-automation--preview-confirm-execute)
+26. [Security Group Automation — Risk-Gated Mutations](#security-group-automation--risk-gated-mutations)
+27. [Cost Automation — Rules, Anomalies, and Remediation](#cost-automation--rules-anomalies-and-remediation)
+28. [Drift Detection — Baselines, Diffs, and Morning Digests](#drift-detection--baselines-diffs-and-morning-digests)
+29. [AWS Organizations Automation](#aws-organizations-automation)
+30. [Runbook Execution Engine](#runbook-execution-engine)
+31. [Operations Control Plane](#operations-control-plane)
+32. [Conclusion](#conclusion)
 
 ---
 
@@ -240,10 +207,10 @@ sequenceDiagram
 ```
 
 <div align="center">
-  <em>Figure 2: Complete Lifecycle of a User Query — From Input to Rendered Security Analysis</em>
+  <em>Figure 1: Complete Lifecycle of a User Query — From Input to Rendered Security Analysis</em>
 </div>
 
-**Figure 2 Explanation:**
+**Figure 1 Explanation:**
 
 This sequence diagram traces the exact lifecycle of a typical user query ("Audit all S3 buckets for public access") through every system component:
 
@@ -301,10 +268,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 3: AWS Credential Configuration Flow — From User Input to SDK Authentication</em>
+  <em>Figure 1: AWS Credential Configuration Flow — From User Input to SDK Authentication</em>
 </div>
 
-**Figure 3 Explanation:**
+**Figure 1 Explanation:**
 
 This diagram shows the two paths a user can take to authenticate with their AWS account and how credentials flow through the system:
 
@@ -346,10 +313,10 @@ flowchart LR
 ```
 
 <div align="center">
-  <em>Figure 4: IAM Permissions as the Agent's Capability Boundary</em>
+  <em>Figure 2: IAM Permissions as the Agent's Capability Boundary</em>
 </div>
 
-**Figure 4 Explanation:**
+**Figure 2 Explanation:**
 
 This diagram illustrates that the agent's capabilities are a direct function of the user's IAM configuration:
 
@@ -432,7 +399,7 @@ sequenceDiagram
 ```
 
 <div align="center">
-  <em>Figure: STS Credential Exchange — Raw keys never reach the agent</em>
+  <em>Figure 1: STS Credential Exchange — Raw keys never reach the agent</em>
 </div>
 
 ### How It Works
@@ -608,10 +575,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 5: Agentic Tool-Call Loop — Complete Decision Flow per Iteration</em>
+  <em>Figure 1: Agentic Tool-Call Loop — Complete Decision Flow per Iteration</em>
 </div>
 
-**Figure 5 Explanation:**
+**Figure 1 Explanation:**
 
 This flowchart details the exact decision logic inside the agentic loop that powers every CloudPilot AI query:
 
@@ -768,7 +735,7 @@ Because CloudPilot AI includes "Quick Actions" for workflows such as spinning up
 However, organizations are strictly warned against providing CloudPilot AI with production credentials or generic `AdministratorAccess` policies. To reinforce this security posture visually at the point of configuration, the frontend features a dedicated UI alert inside the AWS Credentials connection panel.
 
 <div align="center">
-  <em>Figure 7: A strict warning emphasizes the usage of scoped-down roles rather than production Administrator credentials.</em>
+  <em>Figure 1: A strict warning emphasizes the usage of scoped-down roles rather than production Administrator credentials.</em>
 </div>
 
 This persistent reminder ensures human operators apply the Principle of Least Privilege, deliberately scoping the agent's permissions down to specific audit accounts or sandboxes.
@@ -841,7 +808,7 @@ flowchart LR
 ```
 
 <div align="center">
-  <em>Figure: Three-stage validation pipeline between LLM and AWS SDK</em>
+  <em>Figure 1: Three-stage validation pipeline between LLM and AWS SDK</em>
 </div>
 
 ### Monitored Privilege Escalation Patterns
@@ -923,7 +890,7 @@ flowchart LR
 ```
 
 <div align="center">
-  <em>Figure: Triple-sink audit architecture — every agent action is recorded to CloudWatch, WORM S3, and the database simultaneously</em>
+  <em>Figure 1: Triple-sink audit architecture — every agent action is recorded to CloudWatch, WORM S3, and the database simultaneously</em>
 </div>
 
 ### Sink 3: WORM S3 — Tamper-Proof Object Lock Storage (User's Account)
@@ -1024,10 +991,10 @@ erDiagram
 ```
 
 <div align="center">
-  <em>Figure 6: Database Schema — Conversations and Messages</em>
+  <em>Figure 1: Database Schema — Conversations and Messages</em>
 </div>
 
-**Figure 6 Explanation:**
+**Figure 1 Explanation:**
 
 This entity-relationship diagram shows the two database tables that persist chat history:
 
@@ -1183,10 +1150,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 7: AWS SNS Email Notification Flow</em>
+  <em>Figure 1: AWS SNS Email Notification Flow</em>
 </div>
 
-**Figure 7 Explanation:**
+**Figure 1 Explanation:**
 
 This flowchart shows how the agent automatically sends email notifications after every analysis:
 
@@ -1347,7 +1314,7 @@ graph LR
 ```
 
 <div align="center">
-  <em>Figure: Private DNS Resolution Flow — SDK calls resolve to VPC Endpoint private IPs, routing traffic entirely over the AWS internal network.</em>
+  <em>Figure 1: Private DNS Resolution Flow — SDK calls resolve to VPC Endpoint private IPs, routing traffic entirely over the AWS internal network.</em>
 </div>
 
 ### Required VPC Endpoints
@@ -1708,7 +1675,7 @@ graph TB
 ```
 
 <div align="center">
-  <em>Figure: CloudWatch Automation Architecture — The agent creates metric filters from log sources, configures alarms with anomaly detection, and routes alerts through SNS to the user's configured email.</em>
+  <em>Figure 1: CloudWatch Automation Architecture — The agent creates metric filters from log sources, configures alarms with anomaly detection, and routes alerts through SNS to the user's configured email.</em>
 </div>
 
 ---
@@ -1887,9 +1854,11 @@ When the spike appears to be EC2-related, the backend can identify idle non-prod
 
 ### Current Limits
 
-- no scheduled EventBridge polling yet
-- no Slack / email delivery orchestration beyond the stored rule structure
 - no destructive auto-remediation such as deletion or termination
+
+### Scheduled Polling & Delivery
+
+Cost anomalies are proactively evaluated through a scheduled EventBridge polling mechanism. EventBridge triggers regular executions of the `aws-agent` logic to fetch live cost metrics and compare them against the stored rule structures. When an anomaly is detected, notifications are automatically dispatched through actual notification delivery paths to predefined channels, bypassing the need for manual UI intervention.
 
 ---
 
@@ -1945,6 +1914,12 @@ Each drift event stores:
 - fix prompt
 
 This turns drift detection from a raw "something changed" feed into a workflow-oriented control surface.
+
+### Live CloudTrail Reactions
+
+CloudPilot leverages an **EventBridge + Lambda** architecture for live reactions to CloudTrail events. By configuring EventBridge rules to match specific administrative or high-risk API calls (e.g., `AuthorizeSecurityGroupIngress`, `PutBucketPublicAccessBlock`), events are immediately routed to a Lambda function which forwards the context to the CloudPilot platform.
+
+This capability enables true real-time threat response rather than relying solely on post-incident API polling, automatically evaluating the event against stored `event_response_policies` to instantly trigger Slack notifications or kick off runbook remediations.
 
 ---
 
@@ -2047,11 +2022,58 @@ Runbook executions are persisted in Supabase:
 
 ### Current Limits
 
-- realtime frontend subscription to step-level progress is not yet wired
 - some destructive breach-response steps are intentionally manual or gated
 - rollback is represented structurally, but not every rollback path is fully automated yet
 
-Even in this first slice, the runbook engine establishes an important architectural shift: the agent is no longer only a chat interface with tools, but a workflow system with durable execution state.
+Even in this first slice, the runbook engine establishes an important architectural shift: the agent is no longer only a chat interface with tools, but a workflow system with durable execution state. Both executions and individual step statuses are updated via Supabase Realtime subscriptions, driving live updates directly on the Operations page UI.
+
+---
+
+## Operations Control Plane
+
+CloudPilot features a unified **Operations Control Plane**, accessible via the `/operations` route. This dashboard aggregates data from all automation and policy tables into a single interactive view, transforming CloudPilot from a reactive chat tool into a centralized security management platform.
+
+### Key Components
+
+1. **Event Policies:** View and manage rules matching against live CloudTrail events (e.g., `RunInstances`, `DeleteTrail`). Users can define risk thresholds and response actions (notify, runbook, auto_fix) directly from the UI.
+2. **Cost Rules:** A view into active spend anomaly thresholds, their scopes (account-wide or specific services), and the required response when a spike is detected.
+3. **Drift & Baselines:** An aggregated summary showing the total number of baselined resources and a feed of unresolved drift events detected by the background polling engine.
+4. **Runbook History (Live Streaming):** A critical feature of the control plane. Users can observe active runbooks with real-time step streaming. The UI subscribes to the `runbook_execution_steps` table via Supabase Realtime, animating step progression as the backend executes multi-phase remediations.
+5. **Organization Rollouts:** A history view of changes broadcasted across multiple member accounts in an AWS Organization.
+
+### Control Plane Architecture Workflow
+
+```mermaid
+graph TB
+    subgraph AWS Environment
+        A[CloudTrail Events] --> B[EventBridge Rule]
+        B --> C[Lambda Forwarder]
+        D[EventBridge Scheduler] --> E[Cost & Drift Polling Lambda]
+    end
+
+    subgraph CloudPilot Backend
+        C --> F[Policy Evaluator Edge Function]
+        E --> G[Metric & Config Evaluator]
+        F --> H[(Supabase: Event Policies, Runbooks, Drift, Cost)]
+        G --> H
+    end
+
+    subgraph Operations Control Plane UI
+        H -.-> |Supabase Realtime| I[Live Dashboard Updates]
+        I --> J[Runbook Step Streaming]
+        I --> K[Drift Alerts & Notification Dispatch]
+    end
+```
+<div align="center">
+  <em>Figure 1: Operations Control Plane and Real-time Reactive Architecture</em>
+</div>
+
+**Figure 1 Explanation:**
+
+The Operations Control Plane visualizes the underlying reactive architecture:
+1. **AWS Environment:** EventBridge monitors live CloudTrail events (like security group changes or bucket policy updates) and scheduled cron tasks (for cost anomalies and drift checks). When triggered, a Lambda forwarder or polling function executes.
+2. **CloudPilot Backend:** The backend functions evaluate the incoming context against user-defined `event_response_policies`, `cost_automation_rules`, and baseline `resource_snapshots`. Depending on the findings, it mutates state in Supabase and optionally starts runbooks.
+3. **Operations Control Plane UI:** The React frontend subscribes to these Supabase tables via Realtime websockets. As the backend updates tables (e.g., streaming `runbook_execution_steps` or inserting a new `drift_events` record), the `/operations` dashboard instantly updates, providing operators with a live command center view without manual refresh.
 
 ---
 

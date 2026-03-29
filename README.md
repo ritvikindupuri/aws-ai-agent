@@ -59,6 +59,9 @@ sequenceDiagram
 - **Task Automator**: Streamlines the execution of standard runbooks for rapid and effective issue remediation using real AWS APIs.
 - **Actionable Remediation Commands**: Generates exact, context-aware AWS CLI commands to remediate findings immediately.
 - **Reporting & Alerts Engine**: Features a comprehensive reporting suite generating HTML/Markdown output alongside checking severity-tiered alerting setups (Critical/High/Medium/Low via SNS/Lambda).
+- **Operations Control Plane**: A centralized UI dashboard (`/operations`) that aggregates event response policies, saved cost rules, baseline and drift status, runbook history with live step progress, and organization rollout previews/history all in one place.
+- **Real-Time Reactive Automations**: Incorporates EventBridge + Lambda for live CloudTrail reactions and scheduled polling for cost and drift.
+- **Live Streaming Executions**: Realtime runbook step streaming directly in the UI with actual notification delivery paths.
 
 ---
 
