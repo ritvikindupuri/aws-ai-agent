@@ -515,14 +515,67 @@ The UI follows a **"Tactical Clarity"** design philosophy—dark charcoal backgr
 
 The frontend architecture described in Section 5 communicates primarily with a single backend entry point: the `aws-agent` edge function. This section details its internal logic, system prompt engineering, and agentic loop mechanics.
 
-The `aws-agent` edge function (`supabase/functions/aws-agent/index.ts`, 1,239 lines) runs on Deno, guaranteeing ephemeral, isolated compute per request.
+The `aws-agent` edge function (`supabase/functions/aws-agent/index.ts`, 1,337 lines) runs on Deno, guaranteeing ephemeral, isolated compute per request. It employs a **two-model architecture**: a fast intent classifier (Gemini 2.5 Flash Lite) determines the query domain, followed by the main agentic model (Gemini 2.5 Flash) operating with only the relevant tool subset.
 
 ### Core Responsibilities
 
 1. **Input Validation** — Validates message arrays (max 100), content lengths (max 50,000 chars), credential formats via regex, and requires `sessionToken`
-2. **System Prompt Injection** — Constructs the AI context with Zero Simulation Tolerance rules, 15 tool usage protocols, attack simulation lifecycle, output format mandates, S3 archival instructions, and SNS notification instructions
-3. **Agentic Tool-Call Loop** — Up to 15 iterations of AI-tool interactions, dispatching all tool calls to `aws-agent-tools` in batched requests
-4. **SSE Streaming** — Streams the final Markdown response as 30-character chunks at 8ms intervals
+2. **Intent Classification** — Uses Gemini 2.5 Flash Lite for a single-shot classification of user intent into one of 9 categories, selecting only the relevant tool subset
+3. **System Prompt Injection** — Constructs the AI context with Zero Simulation Tolerance rules, tool usage protocols (scoped to classified intent), attack simulation lifecycle, output format mandates, S3 archival instructions, and SNS notification instructions
+4. **Agentic Tool-Call Loop** — Up to 15 iterations of AI-tool interactions using Gemini 2.5 Flash with the filtered tool set, dispatching all tool calls to `aws-agent-tools` in batched requests
+5. **SSE Streaming** — Streams the final Markdown response as 30-character chunks at 8ms intervals
+
+### Intent Router — LLM-Based Tool Selection
+
+Before entering the agentic loop, `aws-agent` invokes Gemini 2.5 Flash Lite (the fastest, cheapest model) to classify the user's intent into one of 9 categories. Based on this classification, only the relevant tools are included in the main agent's context, reducing token usage and improving accuracy.
+
+| Intent | Tool Subset | Example Queries |
+|--------|-------------|-----------------|
+| `security_audit` | `execute_aws_api`, `run_unified_audit`, `manage_security_group_rule`, `manage_iam_access` | "Audit my S3 buckets", "Check my security posture" |
+| `cost_analysis` | `execute_aws_api`, `run_cost_anomaly_scan`, `manage_cost_rule` | "Where am I wasting money?", "Alert if spend > $200" |
+| `drift_detection` | `execute_aws_api`, `manage_drift_baseline`, `run_drift_detection` | "Capture baseline", "Show overnight drift" |
+| `org_management` | `execute_aws_api`, `run_org_query`, `manage_org_operation` | "Which accounts lack MFA?", "Apply SCP to dev accounts" |
+| `ops_automation` | `execute_aws_api`, `manage_runbook_execution`, `manage_security_group_rule`, `manage_iam_access` | "Run incident response", "Run playbook", "Confirm" |
+| `attack_simulation` | `execute_aws_api`, `run_attack_simulation`, `run_evasion_test` | "Simulate privilege escalation", "Test evasion" |
+| `event_automation` | `execute_aws_api`, `manage_event_response_policy`, `replay_cloudtrail_events` | "If anyone opens port 22, close it", "Replay last 24h" |
+| `direct_query` | `execute_aws_api` | "List my S3 buckets", "Show EC2 instances" |
+| `general` | All 15 tools | Ambiguous or multi-domain queries |
+
+```mermaid
+flowchart TD
+    A[User Query + Conversation Context] --> B[Gemini 2.5 Flash Lite<br/>Intent Classifier]
+    B --> C{Classified Intent}
+    C -- security_audit --> D[4 tools selected]
+    C -- cost_analysis --> E[3 tools selected]
+    C -- drift_detection --> F[3 tools selected]
+    C -- org_management --> G[3 tools selected]
+    C -- ops_automation --> H[4 tools selected]
+    C -- attack_simulation --> I[3 tools selected]
+    C -- event_automation --> J[3 tools selected]
+    C -- direct_query --> K[1 tool selected]
+    C -- general --> L[All 15 tools]
+    D & E & F & G & H & I & J & K & L --> M[Gemini 2.5 Flash<br/>Main Agentic Loop<br/>with filtered tools]
+```
+
+<div align="center">
+  <em>Figure 6.1: Intent Router — LLM-Based Tool Selection Before the Agentic Loop</em>
+</div>
+
+**Figure 6.1 Explanation:**
+
+This diagram shows the two-stage model architecture:
+
+1. **Classification Stage:** The user's latest message and last 3 conversation messages are sent to Gemini 2.5 Flash Lite with a structured classification prompt. The model returns a single category string (e.g., `security_audit`). If classification fails (network error, invalid response), the system falls back to `general` which includes all 15 tools.
+
+2. **Tool Filtering:** The classified intent maps to a pre-defined tool subset via `INTENT_TOOL_MAP`. For example, a cost query only sees `execute_aws_api`, `run_cost_anomaly_scan`, and `manage_cost_rule` — 3 tools instead of 15. This reduces the tool definition tokens by ~80% for focused queries.
+
+3. **Main Agent:** Gemini 2.5 Flash receives the full system prompt, conversation history, and the **filtered** tool set. It then enters the standard agentic loop (up to 15 iterations).
+
+**Benefits:**
+- **Token efficiency:** Direct queries use 1 tool definition (~200 tokens) instead of 15 (~3,000 tokens)
+- **Improved accuracy:** The model is less likely to call irrelevant tools when only relevant ones are available
+- **Lower latency:** Fewer tokens in the prompt means faster AI inference
+- **Cost reduction:** Flash Lite classification costs ~10x less than including all tools in every request
 
 ### System Prompt Engineering
 
