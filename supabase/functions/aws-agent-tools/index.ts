@@ -6849,9 +6849,6 @@ serve(async (req) => {
             }
           }
         }
-      }
-    }
-
     // Convert apiMessages tool results to response format
     const results = apiMessages
       .filter((m: any) => m.role === "tool")
