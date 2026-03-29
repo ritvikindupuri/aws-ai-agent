@@ -749,10 +749,33 @@ Each request runs in a fresh Deno isolate via Supabase Edge Functions. AWS SDK c
 ### 2. Service Allowlisting
 The `ALLOWED_AWS_SERVICES` set (35 services) restricts the AI to security-relevant services only. Any attempt to access a service outside this list is rejected with an error returned to the AI.
 
-### 3. Destructive Operation Blocklist
-The `BLOCKED_OPERATIONS` set permanently blocks 5 catastrophic account-level actions (e.g., `closeAccount`, `deleteOrganization`), regardless of user-provided permissions.
+### 3. Destructive Operation Blocklist & Hard-Blocking Interceptor
+While the LLM's system prompt strictly instructs it to seek confirmation before modifying security groups or mutating IAM configurations, relying solely on an LLM to prevent destructive actions is inherently risky. LLMs are susceptible to hallucinations or prompt injection.
 
-### 4. Strict Input Validation
+To mitigate this, CloudPilot AI implements a programmatic middleware interceptor directly within the Edge Function. The `BLOCKED_OPERATIONS` set permanently blocks catastrophic account-level actions (e.g., `closeAccount`, `deleteOrganization`) and destructive resource-level actions (e.g., `terminateInstances`, `deleteBucket`, `deleteSecret`), regardless of user-provided permissions. If the agent attempts to call any of these, the Edge Function immediately intercepts the request and throws a fatal error, which is then recorded in the WORM audit trail.
+
+### 4. Principle of Least Privilege & Frontend UI Warnings
+
+Because CloudPilot AI includes "Quick Actions" for workflows such as spinning up an attack simulation, the agent technically has the capability to utilize highly privileged roles (like VPC creation).
+
+However, organizations are strictly warned against providing CloudPilot AI with production credentials or generic `AdministratorAccess` policies. To reinforce this security posture visually at the point of configuration, the frontend features a dedicated UI alert inside the AWS Credentials connection panel.
+
+<div align="center">
+  <em>Figure 7: A strict warning emphasizes the usage of scoped-down roles rather than production Administrator credentials.</em>
+</div>
+
+This persistent reminder ensures human operators apply the Principle of Least Privilege, deliberately scoping the agent's permissions down to specific audit accounts or sandboxes.
+
+### 5. AWS SDK v3 Integration
+
+The backend components of CloudPilot AI, particularly the Supabase Edge Functions, are built utilizing the modern **AWS SDK for JavaScript v3**.
+
+Migrating from the legacy v2 monolithic SDK to the modular v3 architecture provides the following security and maintainability benefits:
+1. **Reduced Bundle Size & Attack Surface:** Services are imported independently (e.g., `@aws-sdk/client-s3`), drastically lowering memory footprint and excluding unnecessary SDK code.
+2. **Static Analyzability:** The dynamic edge function architecture handles the v3 transition using a static `AWS_V3_SERVICE_MAP` and explicit literal string `import()` switch statements. This ensures the Supabase Edge Functions / Deno Deploy bundler can statically analyze and package exactly the necessary dependencies for the dynamic `execute_aws_api` tool, preventing cold-start failure conditions while maintaining modularity.
+3. **Long-Term Support:** Aligns the project with Amazon's official security patching timelines, as SDK v2 entered maintenance mode in 2023.
+
+### 6. Strict Input Validation
 
 | Input | Validation | Rejection Behavior |
 |-------|-----------|-------------------|
