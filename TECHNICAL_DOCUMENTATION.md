@@ -579,11 +579,17 @@ This diagram shows the two-stage model architecture:
 
 3. **Main Agent:** Gemini 2.5 Flash receives the full system prompt, conversation history, and the **filtered** tool set. It then enters the standard agentic loop (up to 15 iterations).
 
-**Benefits:**
-- **Token efficiency:** Direct queries use 1 tool definition (~200 tokens) instead of 15 (~3,000 tokens)
-- **Improved accuracy:** The model is less likely to call irrelevant tools when only relevant ones are available
-- **Lower latency:** Fewer tokens in the prompt means faster AI inference
-- **Cost reduction:** Flash Lite classification costs ~10x less than including all tools in every request
+**Why Gemini 2.5 Flash Was Chosen:**
+
+The model selection for CloudPilot AI was driven by three operational requirements specific to an agentic security tool:
+
+- **Latency sensitivity:** Security operations demand fast response times. Gemini 2.5 Flash provides the lowest latency among models with strong tool-calling capabilities, critical for an agentic loop that may iterate up to 15 times per query. Each iteration adds round-trip latency, so a slower model (e.g., GPT-5 or Gemini 2.5 Pro) would compound delays across iterations, making complex audits impractical.
+
+- **Tool-calling accuracy at scale:** CloudPilot exposes 15 complex tools with nested JSON schemas. Gemini 2.5 Flash demonstrates high accuracy in structured tool-call generation while maintaining sub-second inference times — a balance that larger models achieve at 3-5x the cost and latency.
+
+- **Cost efficiency for high-volume usage:** Security teams run dozens of queries per session, each consuming multiple tool-call iterations. Gemini 2.5 Flash costs ~80% less per token than Pro-tier models, making sustained usage economically viable. The two-model architecture further optimizes this: Gemini 2.5 Flash Lite (the cheapest, fastest tier) handles the single-shot classification at ~10x lower cost, while Flash handles the reasoning-intensive agentic loop.
+
+- **Sufficient reasoning depth:** While Pro-tier models offer marginally better reasoning on ambiguous queries, CloudPilot's system prompt and tool-call protocols are highly structured — the model follows deterministic workflows rather than open-ended reasoning. This structured context compensates for any reasoning gap, making Flash's capability level the optimal cost-performance sweet spot.
 
 ### System Prompt Engineering
 
