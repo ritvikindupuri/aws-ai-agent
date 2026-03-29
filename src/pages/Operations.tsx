@@ -253,8 +253,9 @@ const Operations = () => {
       .map((channel) => channel.trim())
       .filter(Boolean);
 
-    await supabase
-      .from("event_response_policies")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase
+      .from("event_response_policies" as any)
       .update({
         name: policyForm.name,
         trigger_event: policyForm.trigger_event,
@@ -262,8 +263,8 @@ const Operations = () => {
         response_type: policyForm.response_type,
         response_action: policyForm.response_action,
         notify_channels: notifyChannels,
-      })
-      .eq("id", editingPolicy.id);
+      } as any)
+      .eq("id", editingPolicy.id) as any);
 
     setEventPolicies((prev) =>
       prev.map((item) =>
