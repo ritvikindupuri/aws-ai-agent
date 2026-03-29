@@ -1217,6 +1217,17 @@ serve(async (req) => {
     let isStreamable = false;
     let latestUnifiedAuditSummary: Record<string, any> | null = null;
 
+    // ── Intent-based routing ─────────────────────────────────────────────────
+    const classifiedIntent = await classifyIntent(sanitizedMessages, ENV.lovableApiKey);
+    console.log(`[CloudPilot Router] Classified intent: ${classifiedIntent}`);
+
+    const allowedToolNames = INTENT_TOOL_MAP[classifiedIntent];
+    const filteredTools = allowedToolNames.size === tools.length
+      ? tools
+      : tools.filter((t: any) => allowedToolNames.has(t.function.name));
+
+    console.log(`[CloudPilot Router] Using ${filteredTools.length}/${tools.length} tools for intent: ${classifiedIntent}`);
+
     const MAX_ITERATIONS = 15;
     const TOOLS_URL = `${ENV.supabaseUrl}/functions/v1/aws-agent-tools`;
 
@@ -1230,9 +1241,9 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
+          model: "google/gemini-2.5-flash",
           messages: apiMessages,
-          tools: tools,
+          tools: filteredTools,
           tool_choice: toolChoice,
           stream: false,
         }),
