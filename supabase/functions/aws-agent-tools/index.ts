@@ -6825,7 +6825,31 @@ serve(async (req) => {
               pushAuditToAws(awsConfig, {
                 timestamp: new Date().toISOString(),
                 userId,
+                service: service || "UNKNOWN",
+                operation: operation || "UNKNOWN",
+                region: awsConfig.region,
+                status: "error",
+                errorCode: typedError.code || null,
+                errorMessage: (errorDetail || "").slice(0, 2000),
+                validatorResult: validatorResult.riskLevel,
+                executionTimeMs: execTime,
+              });
 
+              apiMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({
+                  error: errorDetail,
+                  code: typedError.code,
+                  category: typedError.category,
+                  retryable: typedError.retryable,
+                  statusCode: err.$metadata?.httpStatusCode || err.statusCode || typedError.status,
+                }),
+              } as any);
+            }
+          }
+        }
+      }
     }
 
     // Convert apiMessages tool results to response format
@@ -6836,9 +6860,6 @@ serve(async (req) => {
         content: m.content,
         auditSummary: latestUnifiedAuditSummary || undefined,
       }));
-
-    // Reset audit summary after sending
-    latestUnifiedAuditSummary = null;
 
     return new Response(JSON.stringify({ results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
