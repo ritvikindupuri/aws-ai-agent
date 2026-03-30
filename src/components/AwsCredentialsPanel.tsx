@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Key, ShieldCheck, ChevronDown, ChevronUp, Lock, Eye, EyeOff, Globe, Loader2, AlertTriangle } from "lucide-react";
+import { Key, ShieldCheck, ChevronDown, ChevronUp, Lock, Eye, EyeOff, Globe, Loader2, AlertTriangle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 /** Session credentials returned by the exchange endpoint — these are the ONLY credentials sent to the agent. */
 export interface AwsSessionCredentials {
@@ -52,6 +54,8 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
   const [sessionToken, setSessionToken] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [exchanging, setExchanging] = useState(false);
+  const [storeForGuardian, setStoreForGuardian] = useState(false);
+  const [notificationEmail, setNotificationEmail] = useState("");
 
   const handleSave = async () => {
     setExchanging(true);
@@ -95,6 +99,41 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
       onSave(creds);
       setIsOpen(false);
       toast.success(`Connected to AWS account ${data.identity?.account || ""}`);
+
+      // Store credentials for Guardian autonomous scans if opted in
+      if (storeForGuardian && method === "access_key") {
+        try {
+          const encryptKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.slice(0, 32) || "";
+          const encrypt = (val: string) => {
+            const bytes = new TextEncoder().encode(val);
+            const keyBytes = new TextEncoder().encode(encryptKey);
+            return Array.from(bytes).map((b, i) => (b ^ keyBytes[i % keyBytes.length]).toString(16).padStart(2, "0")).join("");
+          };
+
+          const { error: storeErr } = await supabase.from("stored_aws_credentials" as any).upsert({
+            user_id: (await supabase.auth.getUser()).data.user?.id,
+            label: "Default",
+            region,
+            encrypted_access_key_id: encrypt(accessKeyId),
+            encrypted_secret_access_key: encrypt(secretAccessKey),
+            encrypted_session_token: sessionToken ? encrypt(sessionToken) : null,
+            credential_method: method,
+            account_id: data.identity?.account || null,
+            notification_email: notificationEmail || null,
+            guardian_enabled: true,
+            scan_mode: "all",
+          } as any, { onConflict: "user_id,label" as any });
+
+          if (storeErr) {
+            console.error("Failed to store credentials for Guardian:", storeErr);
+            toast.error("Connected but failed to store for Guardian scheduling.");
+          } else {
+            toast.success("Credentials stored for autonomous Guardian scans.");
+          }
+        } catch (guardianErr) {
+          console.error("Guardian store error:", guardianErr);
+        }
+      }
 
       // Clear raw inputs from memory
       setAccessKeyId("");
@@ -249,6 +288,36 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
                     value={sessionToken}
                     onChange={(e) => setSessionToken(e.target.value)}
                     placeholder="For temporary credentials"
+                    className="font-mono text-xs h-8 bg-muted border-border focus:border-primary/40"
+                  />
+                </div>
+              )}
+
+              {method === "access_key" && (
+                <div className="flex items-center justify-between px-2.5 py-2 bg-secondary/30 rounded border border-border">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3 h-3 text-primary flex-shrink-0" />
+                    <div>
+                      <p className="text-[10px] text-foreground font-medium">Enable Guardian Scheduling</p>
+                      <p className="text-[9px] text-muted-foreground">Store encrypted credentials for autonomous hourly cost & drift scans</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={storeForGuardian}
+                    onCheckedChange={setStoreForGuardian}
+                    className="scale-75"
+                  />
+                </div>
+              )}
+
+              {storeForGuardian && (
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">Notification Email <span className="text-muted-foreground/50">for alerts</span></Label>
+                  <Input
+                    type="email"
+                    value={notificationEmail}
+                    onChange={(e) => setNotificationEmail(e.target.value)}
+                    placeholder="alerts@example.com"
                     className="font-mono text-xs h-8 bg-muted border-border focus:border-primary/40"
                   />
                 </div>
