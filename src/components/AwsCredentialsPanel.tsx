@@ -54,6 +54,8 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
   const [sessionToken, setSessionToken] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [exchanging, setExchanging] = useState(false);
+  const [storeForGuardian, setStoreForGuardian] = useState(false);
+  const [notificationEmail, setNotificationEmail] = useState("");
 
   const handleSave = async () => {
     setExchanging(true);
