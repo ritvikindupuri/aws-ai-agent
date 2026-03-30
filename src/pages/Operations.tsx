@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, FileText, Layers3, PlayCircle, RefreshCcw, Shield, SlidersHorizontal, TrendingUp } from "lucide-react";
+import { ArrowLeft, FileText, Layers3, PlayCircle, RefreshCcw, Shield, SlidersHorizontal, TrendingUp, ShieldCheck, Clock, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+
+interface GuardianCredentialRow {
+  id: string;
+  label: string;
+  account_id: string | null;
+  guardian_enabled: boolean;
+  last_scan_at: string | null;
+  last_scan_status: string | null;
+}
 
 interface EventPolicyRow {
   id: string;
@@ -116,6 +125,7 @@ const Operations = () => {
   const [runbookExecutions, setRunbookExecutions] = useState<RunbookExecutionRow[]>([]);
   const [runbookSteps, setRunbookSteps] = useState<RunbookStepRow[]>([]);
   const [orgHistory, setOrgHistory] = useState<OrgHistoryRow[]>([]);
+  const [guardianCreds, setGuardianCreds] = useState<GuardianCredentialRow[]>([]);
   const [editingPolicy, setEditingPolicy] = useState<EventPolicyRow | null>(null);
   const [policyForm, setPolicyForm] = useState({
     name: "",
@@ -135,6 +145,7 @@ const Operations = () => {
       snapshotsResp,
       runbooksResp,
       orgResp,
+      guardianResp,
     ] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase.from("event_response_policies" as any).select("*").order("created_at", { ascending: false }).limit(25) as any),
@@ -148,6 +159,8 @@ const Operations = () => {
       (supabase.from("runbook_executions" as any).select("*").order("updated_at", { ascending: false }).limit(15) as any),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase.from("org_operation_history" as any).select("*").order("created_at", { ascending: false }).limit(20) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("stored_aws_credentials" as any).select("id, label, account_id, guardian_enabled, last_scan_at, last_scan_status").eq("guardian_enabled", true) as any),
     ]);
 
     setEventPolicies((policiesResp.data || []) as unknown as EventPolicyRow[]);
@@ -157,9 +170,11 @@ const Operations = () => {
     const executions = (runbooksResp.data || []) as unknown as RunbookExecutionRow[];
     setRunbookExecutions(executions);
     setOrgHistory((orgResp.data || []) as unknown as OrgHistoryRow[]);
+    setGuardianCreds((guardianResp.data || []) as unknown as GuardianCredentialRow[]);
 
     const executionIds = executions.map((execution) => execution.id);
     if (executionIds.length > 0) {
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stepsResp = await (supabase
         .from("runbook_execution_steps" as any)
@@ -194,6 +209,7 @@ const Operations = () => {
       .on("postgres_changes", { event: "*", schema: "public", table: "runbook_executions" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "runbook_execution_steps" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "org_operation_history" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "stored_aws_credentials" }, refresh)
       .subscribe();
 
     return () => {
@@ -252,6 +268,7 @@ const Operations = () => {
       .split(",")
       .map((channel) => channel.trim())
       .filter(Boolean);
+
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase
@@ -335,6 +352,85 @@ const Operations = () => {
             </div>
           ))}
         </div>
+
+        <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <div>
+            <p className="text-[10px] font-mono text-muted-foreground tracking-widest uppercase flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+              Guardian Autonomous Security
+            </p>
+            <h2 className="text-lg font-semibold text-foreground mt-1">Autonomous environment scanning</h2>
+            <p className="text-sm text-muted-foreground mt-1">Status of scheduled Guardian scans and anomaly detections across enrolled credentials.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {loading ? (
+              <p className="text-sm text-muted-foreground">Loading Guardian status...</p>
+            ) : guardianCreds.length === 0 ? (
+              <p className="text-sm text-muted-foreground col-span-full border border-dashed border-border rounded-lg p-6 text-center">No credentials enrolled in Guardian scans yet.</p>
+            ) : guardianCreds.map((cred) => {
+              let parsedStatus = { message: cred.last_scan_status || "No scans recorded yet", anomalies: 0 };
+
+              if (cred.last_scan_status) {
+                try {
+                  const data = JSON.parse(cred.last_scan_status);
+                  parsedStatus = {
+                    message: data.status || "Completed",
+                    anomalies: data.anomalies !== undefined ? Number(data.anomalies) : 0
+                  };
+                } catch {
+                  // Fallback for simple string format
+                  const match = cred.last_scan_status.match(/(\d+) anomal/i);
+                  const anomalies = match ? parseInt(match[1], 10) : 0;
+                  parsedStatus = { message: cred.last_scan_status, anomalies };
+                }
+              }
+
+              return (
+                <div key={cred.id} className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-1">
+                      <p className="font-semibold text-sm text-foreground">{cred.label}</p>
+                      {cred.account_id && (
+                        <p className="text-[10px] font-mono text-muted-foreground">{cred.account_id}</p>
+                      )}
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${cred.last_scan_at ? "bg-primary/10 text-primary border-primary/30" : "bg-muted text-muted-foreground border-border"}`}>
+                      {cred.last_scan_at ? "ACTIVE" : "PENDING"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    <div className="space-y-1 bg-background/50 p-2 rounded border border-border">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span className="text-[10px] uppercase font-mono">Last Scan</span>
+                      </div>
+                      <p className="text-xs font-medium truncate">
+                        {cred.last_scan_at ? new Date(cred.last_scan_at).toLocaleString() : "Never"}
+                      </p>
+                    </div>
+                    <div className="space-y-1 bg-background/50 p-2 rounded border border-border">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <AlertTriangle className={`w-3.5 h-3.5 ${parsedStatus.anomalies > 0 ? "text-destructive" : ""}`} />
+                        <span className="text-[10px] uppercase font-mono">Anomalies</span>
+                      </div>
+                      <p className={`text-xs font-medium ${parsedStatus.anomalies > 0 ? "text-destructive" : ""}`}>
+                        {parsedStatus.anomalies} detected
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-border/50">
+                    <p className="text-[11px] text-muted-foreground line-clamp-2" title={parsedStatus.message}>
+                      {parsedStatus.message}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <section className="rounded-xl border border-border bg-card p-5 space-y-4">

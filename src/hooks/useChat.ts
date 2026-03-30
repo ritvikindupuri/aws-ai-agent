@@ -116,7 +116,7 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
     let isActive = true;
 
     const refreshRunbook = async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const { data: executions } = await (supabase
         .from("runbook_executions" as any)
         .select("*")
@@ -131,7 +131,7 @@ export const useChat = (conversationId: string | null, notificationEmail?: strin
         return;
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const { data: steps } = await (supabase
         .from("runbook_execution_steps" as any)
         .select("*")
