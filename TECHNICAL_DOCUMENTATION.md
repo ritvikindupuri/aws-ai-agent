@@ -2692,7 +2692,7 @@ This section tracks the enterprise readiness status of each major capability are
 | Edge function rate limiting | Token-bucket on guardian-scheduler | 35 |
 | Slack/PagerDuty webhooks | Edge function + UI component | 36 |
 | Onboarding wizard | 4-step guided flow | 37 |
-| E2E test suite (Playwright) | Auth + routing coverage | 38 |
+| Team management UI | Full page with invite, role assignment, and removal | 39 |
 
 ### Remaining Enterprise Requirements
 
