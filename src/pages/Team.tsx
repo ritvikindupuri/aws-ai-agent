@@ -301,7 +301,7 @@ const Team = () => {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-foreground truncate">
-                          {isMe ? "You" : `User ${member.user_id.slice(0, 8)}...`}
+                          {isMe ? "You" : member.email || `User ${member.user_id.slice(0, 8)}...`}
                         </p>
                         {isMe && (
                           <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
