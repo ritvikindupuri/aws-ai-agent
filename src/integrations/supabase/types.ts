@@ -160,6 +160,125 @@ export type Database = {
           },
         ]
       }
+      notification_webhooks: {
+        Row: {
+          channel_type: string
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          subscribed_events: Json
+          updated_at: string
+          user_id: string
+          webhook_url: string
+        }
+        Insert: {
+          channel_type?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          subscribed_events?: Json
+          updated_at?: string
+          user_id: string
+          webhook_url: string
+        }
+        Update: {
+          channel_type?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          subscribed_events?: Json
+          updated_at?: string
+          user_id?: string
+          webhook_url?: string
+        }
+        Relationships: []
+      }
+      org_members: {
+        Row: {
+          id: string
+          invited_by: string | null
+          joined_at: string
+          org_id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          invited_by?: string | null
+          joined_at?: string
+          org_id: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          invited_by?: string | null
+          joined_at?: string
+          org_id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_members_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      rate_limit_entries: {
+        Row: {
+          id: string
+          key: string
+          request_count: number
+          window_start: string
+        }
+        Insert: {
+          id?: string
+          key: string
+          request_count?: number
+          window_start?: string
+        }
+        Update: {
+          id?: string
+          key?: string
+          request_count?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       stored_aws_credentials: {
         Row: {
           account_id: string | null
@@ -174,6 +293,7 @@ export type Database = {
           last_scan_at: string | null
           last_scan_status: string | null
           notification_email: string | null
+          org_id: string | null
           region: string
           role_arn: string | null
           scan_mode: string
@@ -193,6 +313,7 @@ export type Database = {
           last_scan_at?: string | null
           last_scan_status?: string | null
           notification_email?: string | null
+          org_id?: string | null
           region?: string
           role_arn?: string | null
           scan_mode?: string
@@ -212,13 +333,22 @@ export type Database = {
           last_scan_at?: string | null
           last_scan_status?: string | null
           notification_email?: string | null
+          org_id?: string | null
           region?: string
           role_arn?: string | null
           scan_mode?: string
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "stored_aws_credentials_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       unified_audit_cache: {
         Row: {
@@ -259,15 +389,47 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_org_role: {
+        Args: { _org_id: string; _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      is_org_member: {
+        Args: { _org_id: string; _user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "owner" | "admin" | "member" | "viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -394,6 +556,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["owner", "admin", "member", "viewer"],
+    },
   },
 } as const
