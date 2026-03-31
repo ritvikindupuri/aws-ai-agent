@@ -119,18 +119,37 @@ const Team = () => {
     setInviting(true);
 
     try {
-      // Look up user by email — we need them to have signed up first
-      // Since we can't query auth.users, we check if a user with this email exists
-      // by attempting to find their org membership or using an edge function
-      // For now, we create a placeholder membership that gets resolved on login
-      
-      // Actually, we need the user_id. In a production app, you'd use an edge function
-      // to look up the user by email. For now, show a message.
-      toast.info(
-        "Invite sent! The user will be added to your organization when they sign up with this email.",
-        { duration: 5000 }
-      );
-      
+      const { data, error } = await supabase.functions.invoke("team-invite", {
+        body: {
+          action: "invite",
+          email: inviteEmail.trim(),
+          role: inviteRole,
+          org_id: org.id,
+        },
+      });
+
+      if (error) {
+        const errMsg = typeof data === "object" && data?.error ? data.error : "Failed to send invite";
+        toast.error(errMsg);
+        return;
+      }
+
+      if (data?.error) {
+        toast.error(data.error);
+        return;
+      }
+
+      if (data?.member) {
+        setMembers((prev) => [...prev, {
+          id: data.member.id,
+          user_id: data.member.user_id,
+          role: data.member.role as AppRole,
+          joined_at: data.member.joined_at,
+          email: data.member.email,
+        }]);
+        toast.success(`${data.member.email} added as ${inviteRole}`);
+      }
+
       setShowInvite(false);
       setInviteEmail("");
       setInviteRole("member");
