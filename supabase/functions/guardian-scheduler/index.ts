@@ -510,24 +510,47 @@ async function runDriftScan(supabaseAdmin: any, userId: string, awsConfig: any) 
   return { accountId, snapshotCount: currentSnapshots.length, driftEvents: events };
 }
 
-// ── Encryption helpers for stored credentials ──────────────────────────────
-const ENCRYPTION_KEY = REQUIRED_SCHEDULER_ENVS.supabaseServiceRoleKey.slice(0, 32);
+// ── AES-256-GCM Encryption helpers for stored credentials ──────────────────
+// Key derivation: PBKDF2 from service role key + user-specific salt
+// Matches the aws-credential-vault edge function encryption scheme.
 
-function decryptValue(encryptedHex: string): string {
-  // pgcrypto-compatible AES-256 symmetric decrypt using service role key derivative
-  // For edge function simplicity, we store base64-encoded values encrypted with
-  // a simple XOR cipher keyed by the service role key hash. This is defence-in-depth
-  // on top of Supabase's at-rest encryption and RLS policies.
+async function deriveDecryptionKey(userId: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(REQUIRED_SCHEDULER_ENVS.supabaseServiceRoleKey),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: encoder.encode(`cloudpilot-vault-${userId}`),
+      iterations: 100000,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+}
+
+async function decryptValue(encryptedB64: string, userId: string): Promise<string> {
   try {
-    const bytes = Uint8Array.from(encryptedHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
-    const keyBytes = new TextEncoder().encode(ENCRYPTION_KEY);
-    const decrypted = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) {
-      decrypted[i] = bytes[i] ^ keyBytes[i % keyBytes.length];
-    }
+    const key = await deriveDecryptionKey(userId);
+    const combined = Uint8Array.from(atob(encryptedB64), c => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      ciphertext
+    );
     return new TextDecoder().decode(decrypted);
   } catch {
-    throw new Error("Failed to decrypt stored credential value.");
+    throw new Error("Failed to decrypt stored credential value. Credentials may need re-encryption.");
   }
 }
 
@@ -551,10 +574,10 @@ async function runAutonomousScans(supabaseAdmin: any): Promise<any[]> {
   for (const cred of storedCreds) {
     const scanStart = Date.now();
     try {
-      const accessKeyId = decryptValue(cred.encrypted_access_key_id);
-      const secretAccessKey = decryptValue(cred.encrypted_secret_access_key);
+      const accessKeyId = await decryptValue(cred.encrypted_access_key_id, cred.user_id);
+      const secretAccessKey = await decryptValue(cred.encrypted_secret_access_key, cred.user_id);
       const sessionToken = cred.encrypted_session_token
-        ? decryptValue(cred.encrypted_session_token)
+        ? await decryptValue(cred.encrypted_session_token, cred.user_id)
         : undefined;
 
       const awsConfig = buildAwsConfig({
@@ -689,6 +712,41 @@ serve(async (req) => {
       REQUIRED_SCHEDULER_ENVS.supabaseUrl,
       REQUIRED_SCHEDULER_ENVS.supabaseServiceRoleKey,
     );
+
+    // ── Rate limiting via token bucket in rate_limit_entries table ──
+    const rateLimitKey = `guardian-scheduler:${body.userId || "autonomous"}`;
+    const windowMinutes = 5;
+    const maxRequests = 10;
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - windowMinutes * 60 * 1000);
+
+    const { data: rlEntry } = await supabaseAdmin
+      .from("rate_limit_entries")
+      .select("*")
+      .eq("key", rateLimitKey)
+      .gte("window_start", windowStart.toISOString())
+      .maybeSingle();
+
+    if (rlEntry && rlEntry.request_count >= maxRequests) {
+      return new Response(JSON.stringify({
+        error: "Rate limit exceeded. Max 10 requests per 5 minutes.",
+        retryAfter: windowMinutes * 60,
+      }), {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": String(windowMinutes * 60) },
+      });
+    }
+
+    if (rlEntry) {
+      await supabaseAdmin
+        .from("rate_limit_entries")
+        .update({ request_count: rlEntry.request_count + 1 })
+        .eq("id", rlEntry.id);
+    } else {
+      await supabaseAdmin
+        .from("rate_limit_entries")
+        .insert({ key: rateLimitKey, request_count: 1, window_start: now.toISOString() });
+    }
 
     // ── Autonomous mode: pg_cron invocation with no credentials in body ──
     const isAutonomous = !body.credentials && (

@@ -12,6 +12,9 @@ import StatusBar from "@/components/StatusBar";
 import ChatHistoryPanel from "@/components/ChatHistoryPanel";
 import CloudPilotLogo from "@/components/CloudPilotLogo";
 import NotificationSettings from "@/components/NotificationSettings";
+import OnboardingWizard from "@/components/OnboardingWizard";
+import MfaSetup from "@/components/MfaSetup";
+import WebhookSettings from "@/components/WebhookSettings";
 import { useChat } from "@/hooks/useChat";
 import { useAuth } from "@/hooks/useAuth";
 import { useChatHistory } from "@/hooks/useChatHistory";
@@ -23,6 +26,9 @@ const ChatInterface = () => {
   const [credentials, setCredentials] = useState<AwsCredentials | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
+    return !localStorage.getItem("cloudpilot-onboarding-complete");
+  });
   const [notificationEmail, setNotificationEmail] = useState<string>(() => {
     return localStorage.getItem("cloudpilot-notification-email") || "";
   });
@@ -498,6 +504,12 @@ const ChatInterface = () => {
             {/* Notification Email Settings */}
             <NotificationSettings email={notificationEmail} onSave={handleSaveNotificationEmail} />
 
+            {/* Webhook Settings (Slack/PagerDuty) */}
+            <WebhookSettings />
+
+            {/* MFA Setup */}
+            <MfaSetup />
+
             {auditSummary && (
               <div className="border border-border rounded-lg bg-card p-3 space-y-3">
                 <div className="flex items-center justify-between">
@@ -619,6 +631,19 @@ const ChatInterface = () => {
         onDecline={() => setShowVpcDialog(false)}
         onReAuthenticate={handleCredentialsSave}
       />
+
+      {showOnboarding && (
+        <OnboardingWizard
+          onComplete={() => {
+            setShowOnboarding(false);
+            localStorage.setItem("cloudpilot-onboarding-complete", "true");
+          }}
+          onSkip={() => {
+            setShowOnboarding(false);
+            localStorage.setItem("cloudpilot-onboarding-complete", "true");
+          }}
+        />
+      )}
     </div>
   );
 };
