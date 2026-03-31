@@ -1732,20 +1732,125 @@ The drift lifecycle begins with baseline capture: `manage_drift_baseline` snapsh
 
 ---
 
-## 28. Guardian Automation — Scheduler and Event Processor
+## 28. Guardian Automation — Scheduler, Event Processor, and Autonomous Scanning
 
-Drift detection (Section 27) operates on-demand or on a schedule. This section describes the two Guardian edge functions that enable proactive, automated security operations.
+Drift detection (Section 27) operates on-demand or on a schedule. This section describes the two Guardian edge functions that enable proactive, automated security operations, the stored credential system that powers autonomous scanning, and the auto-fix guardrail that governs remediation decisions.
 
-### Guardian Scheduler (`guardian-scheduler`, 598 lines)
+### Stored AWS Credentials and Encryption Scheme
 
-The scheduler is triggered by EventBridge on a configurable schedule. It performs:
+To enable fully autonomous scanning without manual credential injection, CloudPilot AI provides a credential storage system backed by the `stored_aws_credentials` table.
 
-1. **Authentication:** Validates `GUARDIAN_AUTOMATION_WEBHOOK_SECRET` from the `x-guardian-secret` header. Falls back to Bearer token auth for manual invocation.
-2. **Cost anomaly scanning:** Full 14-day cost data fetch, anomaly detection, idle EC2 identification.
-3. **Drift detection:** Captures live snapshots, compares against baselines, scores severity, stores drift events.
+#### Table Schema
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `user_id` | uuid | Owner of the credential set |
+| `label` | text | Human-readable label (default: "Default") |
+| `region` | text | AWS region (default: us-east-1) |
+| `encrypted_access_key_id` | text | XOR-encrypted AWS access key ID |
+| `encrypted_secret_access_key` | text | XOR-encrypted AWS secret access key |
+| `encrypted_session_token` | text | XOR-encrypted session token (optional) |
+| `credential_method` | text | `access_key` or `assume_role` |
+| `role_arn` | text | IAM role ARN for assume-role method |
+| `account_id` | text | AWS account ID (resolved during exchange) |
+| `guardian_enabled` | boolean | Whether autonomous scanning is active |
+| `scan_mode` | text | `cost`, `drift`, or `all` |
+| `notification_email` | text | Email for SNS alert dispatch |
+| `last_scan_at` | timestamptz | Timestamp of most recent scan |
+| `last_scan_status` | text | Result of the last scan (success or error detail) |
+
+#### Credential Encryption
+
+Credentials are encrypted using a symmetric XOR cipher as a defense-in-depth layer on top of Supabase's at-rest encryption and RLS policies:
+
+1. **Client-side encryption** (`AwsCredentialsPanel.tsx`): Uses the first 32 characters of `VITE_SUPABASE_PUBLISHABLE_KEY` as the XOR key. Each byte of the plaintext credential is XORed with the corresponding key byte (cycling), and the result is stored as a hex string.
+
+2. **Server-side decryption** (`guardian-scheduler/index.ts`): Uses the first 32 characters of `SUPABASE_SERVICE_ROLE_KEY` as the decryption key. The hex string is parsed back to bytes and XORed with the key to recover plaintext.
+
+3. **Key symmetry**: Both keys derive from the same Supabase project, ensuring that credentials encrypted client-side can be decrypted server-side. The publishable key and service role key share the same first 32 characters for this purpose.
+
+4. **RLS protection**: The `stored_aws_credentials` table enforces row-level security so users can only access their own credentials. The `service_role` has full access for the autonomous scanner.
+
+```mermaid
+flowchart TD
+    A[User enters AWS credentials] --> B[Client-side XOR encryption]
+    B --> C[Store encrypted hex in stored_aws_credentials]
+    C --> D[RLS ensures user isolation]
+    D --> E[pg_cron triggers guardian-scheduler]
+    E --> F[Service role fetches all guardian_enabled rows]
+    F --> G[Server-side XOR decryption]
+    G --> H[Build AWS config]
+    H --> I[Execute cost and drift scans]
+    I --> J[Update last_scan_at and last_scan_status]
+```
+
+<div align="center">
+  <em>Figure 28.1: Stored Credential Lifecycle — Encryption, Storage, and Autonomous Decryption</em>
+</div>
+
+**Figure 28.1 Explanation:**
+
+The credential lifecycle spans two environments. On the client side, the `AwsCredentialsPanel` encrypts raw AWS keys using XOR with the publishable key prefix before inserting them into the database. On the server side, the `guardian-scheduler` edge function—running with `service_role` privileges—fetches all rows where `guardian_enabled = true`, decrypts each credential using the service role key prefix, builds valid AWS SDK configurations, and executes the configured scan mode (cost, drift, or both). After each scan, it updates `last_scan_at` and `last_scan_status` to reflect the outcome.
+
+#### UI Integration
+
+The `AwsCredentialsPanel` component provides a toggle labeled **"Enable Guardian Scheduling"**. When activated:
+- The credential set is encrypted and stored in `stored_aws_credentials` via upsert (keyed on `user_id` + `label`).
+- An optional notification email can be configured for SNS alerts.
+- The `scan_mode` defaults to `all` (both cost and drift).
+
+### Guardian Scheduler (`guardian-scheduler`, 821 lines)
+
+The scheduler operates in two modes: **manual** (single-user, credentials in request body) and **autonomous** (multi-user, credentials from database).
+
+#### Manual Mode
+
+Triggered by authenticated users or the automation webhook with explicit credentials:
+
+1. **Authentication:** Validates Bearer token or `x-guardian-secret` header.
+2. **Cost anomaly scanning:** Full 14-day cost data fetch, z-score anomaly detection (threshold: 2.5 sigma), idle EC2 identification (CPU < 2% over 24h).
+3. **Drift detection:** Captures live snapshots of security groups, IAM users, and S3 buckets. Compares against stored baselines via SHA-256 fingerprints.
 4. **Alert dispatch:** Publishes alerts via SNS to the user's configured email.
+5. **Audit logging:** Records the scan in `agent_audit_log` and `automation_runs`.
 
-### Guardian Event Processor (`guardian-event-processor`, 499 lines)
+#### Autonomous Mode
+
+Triggered by `pg_cron` with no credentials in the request body. The scheduler detects this condition and enters autonomous mode:
+
+1. **Detection:** If `body.credentials` is absent and either `x-guardian-secret` matches or `body.autonomous === true`, the function enters autonomous mode.
+2. **Credential fetch:** Queries `stored_aws_credentials` for all rows where `guardian_enabled = true`.
+3. **Per-user scanning:** Iterates over each stored credential set, decrypts it, builds an AWS config, and executes the configured `scan_mode`.
+4. **Error isolation:** Each user's scan is wrapped in a try/catch so a single failure does not abort the entire batch.
+5. **Status tracking:** Updates `last_scan_at` and `last_scan_status` for each credential row after scanning.
+
+```mermaid
+flowchart TD
+    A[pg_cron hourly trigger] --> B[pg_net HTTP POST to guardian-scheduler]
+    B --> C{Credentials in body?}
+    C -- Yes --> D[Manual mode: single user scan]
+    C -- No --> E[Autonomous mode]
+    E --> F[Fetch all guardian_enabled credentials]
+    F --> G[Decrypt each credential set]
+    G --> H[For each user: run configured scans]
+    H --> I{Scan mode}
+    I -- cost --> J[Cost anomaly detection]
+    I -- drift --> K[Drift baseline comparison]
+    I -- all --> L[Both cost and drift]
+    J --> M[Update last_scan_status]
+    K --> M
+    L --> M
+    M --> N[Record in automation_runs and audit_log]
+```
+
+<div align="center">
+  <em>Figure 28.2: Guardian Scheduler — Dual-Mode Architecture with Autonomous Credential Resolution</em>
+</div>
+
+**Figure 28.2 Explanation:**
+
+The scheduler's dual-mode design allows both interactive and fully automated operation. In autonomous mode, triggered hourly by `pg_cron`, the function iterates over all stored credential sets, performing cost and drift scans independently for each user. This eliminates the need for users to be online or to manually trigger scans. Each scan result is persisted to `last_scan_status` (success or failure detail) and recorded across both the `agent_audit_log` and `automation_runs` tables for full traceability.
+
+### Guardian Event Processor (`guardian-event-processor`, 581 lines)
 
 The event processor receives real-time CloudTrail events forwarded via EventBridge + Lambda:
 
@@ -1762,20 +1867,24 @@ flowchart TD
     I --> J{Matching policies}
     J -- No --> K[No action]
     J -- Yes --> L{Response type}
-    L -- auto_fix --> M3[Execute auto-fix]
+    L -- auto_fix --> M3[Check auto-fix guardrail]
     L -- notify --> N[Publish SNS alert]
     L -- runbook --> O[Create runbook execution]
     L -- all --> P[All three actions]
-    M3 --> Q[Record drift event]
-    N --> Q
-    O --> Q
+    M3 --> Q{Guardrail pass}
+    Q -- Yes --> R[Execute auto-fix]
+    Q -- No --> S[Suppress and log reason]
+    R --> T[Record in guardian_event_activity]
+    S --> T
+    N --> T
+    O --> T
 ```
 
 <div align="center">
-  <em>Figure 28.1: Guardian Event Processor — Real-Time CloudTrail Event Reaction Pipeline</em>
+  <em>Figure 28.3: Guardian Event Processor — Real-Time CloudTrail Event Reaction Pipeline with Auto-Fix Guardrail</em>
 </div>
 
-**Figure 28.1 Explanation:**
+**Figure 28.3 Explanation:**
 
 The event processor implements a complete reactive security pipeline:
 
@@ -1785,13 +1894,19 @@ The event processor implements a complete reactive security pipeline:
 
 3. **Policy Matching:** Matches against built-in policies and user-defined policies from the `event_response_policies` table. Built-in policies: auto-block public S3 access, flag root usage.
 
-4. **Auto-Fix Actions:** Implemented fixes include:
+4. **Auto-Fix Guardrail:** Before executing any automatic remediation, the `canAutoFixEvent` function enforces two conditions:
+   - The event must be **CRITICAL** severity. Non-critical events are suppressed.
+   - The event must be in the **reversible critical allowlist** (`AUTO_FIXABLE_CRITICAL_EVENTS`), which includes only: `DeleteBucketPublicAccessBlock`, `DeleteBucketEncryption`, `DeleteTrail`, `StopLogging`, `AuthorizeSecurityGroupIngress`.
+   
+   If either condition fails, the auto-fix is suppressed and a structured reason is recorded alongside the event activity.
+
+5. **Auto-Fix Actions:** Implemented fixes include:
    - `DeleteBucketPublicAccessBlock` -> `PutPublicAccessBlock` (restore all four blocks)
    - `DeleteBucketEncryption` -> `PutBucketEncryption` (restore AES-256)
    - `StopLogging`/`DeleteTrail` -> `StartLogging` (restart CloudTrail)
    - `AuthorizeSecurityGroupIngress` (world-open) -> `RevokeSecurityGroupIngress` (revoke the rule)
 
-5. **Drift Recording:** Every processed event is recorded as a drift event for tracking.
+6. **Activity Recording:** Every processed event is recorded in the `guardian_event_activity` table with full context: matched policies, auto-fix results (including suppression reasons), notification outcomes, and runbook triggers. This powers the live event feed in the Operations Control Plane.
 
 ### Scheduling via pg_cron
 
@@ -1802,18 +1917,18 @@ flowchart TD
     A[pg_cron Extension - Hourly Schedule] --> B[pg_net HTTP POST]
     B --> C[guardian-scheduler Edge Function]
     C --> D{x-guardian-secret validation}
-    D -- Valid --> E[Cost Anomaly Scan]
-    D -- Valid --> F[Drift Detection]
-    D -- Invalid --> G[400 Unauthorized]
-    E --> H[SNS Alert if anomaly]
-    F --> H
+    D -- Valid --> E[Autonomous mode: all stored credentials]
+    D -- Invalid --> F[400 Unauthorized]
+    E --> G[Cost and drift scans per user]
+    G --> H[SNS alerts for anomalies]
+    G --> I[Update scan status in DB]
 ```
 
 <div align="center">
-  <em>Figure 28.2: Guardian Scheduler — pg_cron Scheduling Architecture</em>
+  <em>Figure 28.4: pg_cron Scheduling — Autonomous Multi-User Scan Trigger</em>
 </div>
 
-**Figure 28.2 Explanation:**
+**Figure 28.4 Explanation:**
 
 The scheduling is implemented entirely within PostgreSQL using two extensions:
 
