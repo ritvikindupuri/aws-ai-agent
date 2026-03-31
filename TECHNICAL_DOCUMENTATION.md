@@ -2571,10 +2571,10 @@ sequenceDiagram
 ```
 
 <div align="center">
-  <em>Figure 34.1: TOTP MFA Enrollment Sequence</em>
+  <em>Figure 36.1: TOTP MFA Enrollment Sequence</em>
 </div>
 
-**Figure 34.1 Explanation:**
+**Figure 36.1 Explanation:**
 
 The enrollment follows a three-phase process: (1) **Enrollment** — the auth API generates a TOTP secret and returns a QR code image; (2) **Challenge** — after the user scans the QR code with their authenticator app, the API creates a challenge; (3) **Verification** — the user enters the 6-digit code from their app, which is verified against the challenge. On success, MFA is permanently enabled for the account.
 
@@ -2616,10 +2616,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 35.1: Token-Bucket Rate Limiting Flow</em>
+  <em>Figure 37.1: Token-Bucket Rate Limiting Flow</em>
 </div>
 
-**Figure 35.1 Explanation:**
+**Figure 37.1 Explanation:**
 
 Each request computes a rate limit key (e.g., `guardian-scheduler:autonomous` or `guardian-scheduler:{userId}`). The function queries the `rate_limit_entries` table for an existing entry within the current time window. If the count exceeds the maximum allowed requests, a 429 response with a `Retry-After` header is returned. Otherwise, the count is incremented and the request proceeds.
 
@@ -2664,10 +2664,10 @@ flowchart LR
 ```
 
 <div align="center">
-  <em>Figure 36.1: Webhook Notification Dispatch Architecture</em>
+  <em>Figure 38.1: Webhook Notification Dispatch Architecture</em>
 </div>
 
-**Figure 36.1 Explanation:**
+**Figure 38.1 Explanation:**
 
 When Guardian processes an event or completes a scan, it calls the `webhook-notify` function with a structured payload. The function looks up all active webhooks for the user, filters by subscribed event types, and dispatches to each channel using the appropriate format: Slack Block Kit attachments with severity-colored sidebars, PagerDuty Events API v2 with proper severity mapping, or a generic JSON POST.
 
@@ -2737,7 +2737,7 @@ flowchart LR
 ```
 
 <div align="center">
-  <em>Figure 37.1: Onboarding Wizard Flow</em>
+  <em>Figure 39.1: Onboarding Wizard Flow</em>
 </div>
 
 | Step | Title | Content |
@@ -2827,10 +2827,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 39.1: Team Management Page — Role-Based UI Rendering</em>
+  <em>Figure 41.1: Team Management Page — Role-Based UI Rendering</em>
 </div>
 
-**Figure 39.1 Explanation:**
+**Figure 41.1 Explanation:**
 
 When a user navigates to `/team`, the component loads their org membership from the `org_members` table, determines their role, and conditionally renders management controls. Owners and admins see invite, role-change, and removal buttons. Members and viewers see a read-only list of team members and the credential access policy.
 
@@ -2868,10 +2868,10 @@ sequenceDiagram
 ```
 
 <div align="center">
-  <em>Figure 39.2: Member Invitation Sequence</em>
+  <em>Figure 41.2: Member Invitation Sequence</em>
 </div>
 
-**Figure 39.2 Explanation:**
+**Figure 41.2 Explanation:**
 
 The invite flow is initiated by owners or admins through the Invite Member button. The dialog collects the invitee's email address and desired role (admin, member, or viewer — owner cannot be assigned via invite). The role selector provides inline descriptions so the inviter understands the access implications of each role.
 
@@ -2931,10 +2931,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 39.3: team-invite Edge Function — Invite and Member Listing Flow</em>
+  <em>Figure 41.3: team-invite Edge Function — Invite and Member Listing Flow</em>
 </div>
 
-**Figure 39.3 Explanation:**
+**Figure 41.3 Explanation:**
 
 The `team-invite` edge function supports two actions: `invite` (add a user by email) and `list_members_with_emails` (return all members with resolved email addresses). For invites, the function authenticates the caller, verifies they have owner or admin privileges, looks up the target user by email using the admin API, checks for duplicate membership, and inserts the new member with the specified role. For listing, it resolves all member user IDs to email addresses using the admin API, which is not accessible from the client. Both actions use the service role for privileged operations while enforcing authorization checks in code.
 
@@ -2976,10 +2976,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 40.1: Authentication Architecture — Current and Planned SSO Integration Path</em>
+  <em>Figure 42.1: Authentication Architecture — Current and Planned SSO Integration Path</em>
 </div>
 
-**Figure 40.1 Explanation:**
+**Figure 42.1 Explanation:**
 
 The current authentication flow supports email/password with optional TOTP MFA. The SSO path shows the planned integration: users would be redirected to their organization's identity provider, which returns a SAML assertion. The authentication backend validates this assertion and issues a standard JWT session, which flows into the same RBAC system used by all other auth methods. This means no changes are needed to the authorization layer — SSO users get the same `org_members` roles and RLS-enforced data isolation as email/password users.
 
