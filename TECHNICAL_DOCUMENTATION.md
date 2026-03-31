@@ -2809,7 +2809,7 @@ npx playwright test e2e/auth.spec.ts
 
 ## 41. Team Management UI
 
-The RBAC schema from Section 33 is now exposed through a dedicated Team Management page (`/team`), enabling org owners and admins to view members, assign roles, invite new users, and understand credential access policies — all from a single interface.
+The RBAC schema from Section 35 is now exposed through a dedicated Team Management page (`/team`), enabling org owners and admins to view members, assign roles, invite new users, and understand credential access policies — all from a single interface.
 
 ### Page Architecture
 
@@ -2904,7 +2904,7 @@ The Team page is accessible from:
 
 ### Relationship to RBAC System
 
-This UI is the operational frontend for the RBAC infrastructure documented in Section 33. The database schema (`organizations`, `org_members`, `user_roles`), security definer functions (`is_org_member`, `get_org_role`, `has_role`), and RLS policies all power the Team page's data access and mutation controls. The auto-provisioning trigger ensures every new user has an organization ready for team management from their first login.
+This UI is the operational frontend for the RBAC infrastructure documented in Section 35. The database schema (`organizations`, `org_members`, `user_roles`), security definer functions (`is_org_member`, `get_org_role`, `has_role`), and RLS policies all power the Team page's data access and mutation controls. The auto-provisioning trigger ensures every new user has an organization ready for team management from their first login.
 
 ### `team-invite` Edge Function
 
