@@ -215,16 +215,24 @@ const Operations = () => {
       automationRunsResp,
       eventActivityResp,
     ] = await Promise.all([
-      supabase.from("event_response_policies").select("*").order("created_at", { ascending: false }).limit(25),
-      supabase.from("cost_automation_rules").select("*").order("created_at", { ascending: false }).limit(25),
-      supabase.from("drift_events").select("*").order("detected_at", { ascending: false }).limit(25),
-      supabase.from("resource_snapshots").select("*").eq("is_baseline", true).order("captured_at", { ascending: false }).limit(100),
-      supabase.from("runbook_executions").select("*").order("updated_at", { ascending: false }).limit(15),
-      supabase.from("org_operation_history").select("*").order("created_at", { ascending: false }).limit(20),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("event_response_policies" as any).select("*").order("created_at", { ascending: false }).limit(25) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("cost_automation_rules" as any).select("*").order("created_at", { ascending: false }).limit(25) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("drift_events" as any).select("*").order("detected_at", { ascending: false }).limit(25) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("resource_snapshots" as any).select("*").eq("is_baseline", true).order("captured_at", { ascending: false }).limit(100) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("runbook_executions" as any).select("*").order("updated_at", { ascending: false }).limit(15) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("org_operation_history" as any).select("*").order("created_at", { ascending: false }).limit(20) as any),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase.from("stored_aws_credentials" as any).select("id, label, account_id, guardian_enabled, last_scan_at, last_scan_status").eq("guardian_enabled", true) as any),
-      supabase.from("automation_runs").select("*").order("created_at", { ascending: false }).limit(20),
-      supabase.from("guardian_event_activity").select("*").order("created_at", { ascending: false }).limit(20),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("automation_runs" as any).select("*").order("created_at", { ascending: false }).limit(20) as any),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("guardian_event_activity" as any).select("*").order("created_at", { ascending: false }).limit(20) as any),
     ]);
 
     setEventPolicies((policiesResp.data || []) as unknown as EventPolicyRow[]);
@@ -235,8 +243,8 @@ const Operations = () => {
     setRunbookExecutions(executions);
     setOrgHistory((orgResp.data || []) as unknown as OrgHistoryRow[]);
     setGuardianCreds((guardianResp.data || []) as unknown as GuardianCredentialRow[]);
-    setAutomationRuns((automationRunsResp.data || []) as AutomationRunRow[]);
-    setEventActivity((eventActivityResp.data || []) as GuardianEventActivityRow[]);
+    setAutomationRuns((automationRunsResp.data || []) as unknown as AutomationRunRow[]);
+    setEventActivity((eventActivityResp.data || []) as unknown as GuardianEventActivityRow[]);
 
     const executionIds = executions.map((execution) => execution.id);
     if (executionIds.length > 0) {
