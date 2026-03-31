@@ -2693,13 +2693,13 @@ This section tracks the enterprise readiness status of each major capability are
 | Slack/PagerDuty webhooks | Edge function + UI component | 36 |
 | Onboarding wizard | 4-step guided flow | 37 |
 | Team management UI | Full page with invite, role assignment, and removal | 39 |
+| E2E test suite (Playwright) | Auth + routing coverage | 38 |
 
 ### Remaining Enterprise Requirements
 
 | Feature | Priority | Status |
 |---------|----------|--------|
 | SSO/SAML integration | HIGH | Not started — requires identity provider configuration |
-| Team management UI | HIGH | Schema ready, UI not built |
 | Billing/subscription layer | MEDIUM | Not started |
 | API key rotation UI | MEDIUM | Not started |
 | Exportable compliance reports (PDF/CSV) | MEDIUM | PDF export exists, CSV not implemented |
