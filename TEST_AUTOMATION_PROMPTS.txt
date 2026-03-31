@@ -118,3 +118,24 @@ If root account is used for anything, wake up the on-call immediately.
 
 31. Replay recent CloudTrail events
 Replay the last 24 hours of CloudTrail events against my response policies and return a formal backtest report showing which events would have triggered which policies. Do not use emojis.
+
+32. Replay recent CloudTrail events with auto-fix decisions
+Replay the last 24 hours of CloudTrail events against my current response policies and return a formal report that explicitly states, for each matched event, whether auto-fix would be applied, suppressed by guardrails, or not attempted.
+
+33. Create CloudTrail disablement response policy
+If CloudTrail logging is disabled, restore it immediately, notify the security team, and trigger the appropriate runbook.
+
+
+Operations UI verification
+
+34. Create data for Operations page
+Create or refresh enough automation state for the Operations page by listing my active event response policies, saved cost rules, latest drift status, recent runbook executions, recent organization operation history, recent live event activity, and recent automation runtime records in a formal summary.
+
+35. Guardian credential status summary
+List every stored AWS credential set Guardian knows about, the last scan time, the latest scan outcome, and the current anomaly count for each credential set in a formal summary.
+
+36. Latest live event activity summary
+Show me the latest live Guardian event activity. Include event name, risk level, affected resource, matched policy, and whether auto-fix was applied, suppressed, or not attempted.
+
+37. Latest automation runtime summary
+Show me the most recent Guardian automation runtime entries for scheduled scans and event processing, including status, scan type, timestamps, and any summary counts.
