@@ -2722,7 +2722,7 @@ The `WebhookSettings` component in the sidebar provides:
 
 ---
 
-## 37. Guided Onboarding Wizard
+## 39. Guided Onboarding Wizard
 
 New users are greeted with a 4-step guided onboarding wizard (`OnboardingWizard` component) that walks them through connecting AWS credentials, enabling Guardian, and running their first security audit.
 
