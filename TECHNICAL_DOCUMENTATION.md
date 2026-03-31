@@ -2545,7 +2545,7 @@ The `stored_aws_credentials` table includes an `org_id` column. RLS policies on 
 
 ---
 
-## 34. Multi-Factor Authentication (MFA) Enrollment
+## 36. Multi-Factor Authentication (MFA) Enrollment
 
 CloudPilot supports TOTP-based multi-factor authentication through the `MfaSetup` component, which integrates with the authentication provider's native MFA capabilities.
 
