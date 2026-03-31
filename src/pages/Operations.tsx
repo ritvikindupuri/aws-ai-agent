@@ -544,7 +544,8 @@ const Operations = () => {
       },
     };
 
-    await supabase.from("compliance_evidence_exports").insert(insertPayload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("compliance_evidence_exports" as any) as any).insert(insertPayload);
 
     const blob = new Blob([JSON.stringify(insertPayload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
