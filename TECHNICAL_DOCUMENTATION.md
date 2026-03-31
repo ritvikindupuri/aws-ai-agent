@@ -60,8 +60,9 @@ By tightly coupling LLM reasoning capabilities with strict, restricted, and audi
 37. [Guided Onboarding Wizard](#37-guided-onboarding-wizard)
 38. [End-to-End Test Suite](#38-end-to-end-test-suite)
 39. [Team Management UI](#39-team-management-ui)
-40. [Production Readiness Roadmap](#40-production-readiness-roadmap)
-41. [Conclusion](#41-conclusion)
+40. [SSO/SAML Integration Preparation](#40-ssosaml-integration-preparation)
+41. [Production Readiness Roadmap](#41-production-readiness-roadmap)
+42. [Conclusion](#42-conclusion)
 
 ---
 
