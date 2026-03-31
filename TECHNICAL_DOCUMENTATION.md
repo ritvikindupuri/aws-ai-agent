@@ -2807,7 +2807,7 @@ npx playwright test e2e/auth.spec.ts
 
 ---
 
-## 39. Team Management UI
+## 41. Team Management UI
 
 The RBAC schema from Section 33 is now exposed through a dedicated Team Management page (`/team`), enabling org owners and admins to view members, assign roles, invite new users, and understand credential access policies — all from a single interface.
 
