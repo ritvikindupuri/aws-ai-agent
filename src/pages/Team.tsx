@@ -74,20 +74,37 @@ const Team = () => {
 
     if (orgData) setOrg(orgData);
 
-    // Load all members of this org
-    const { data: membersData } = await supabase
-      .from("org_members")
-      .select("*")
-      .eq("org_id", membership.org_id)
-      .order("joined_at", { ascending: true });
+    // Load members with emails via edge function
+    try {
+      const { data, error } = await supabase.functions.invoke("team-invite", {
+        body: { action: "list_members_with_emails", org_id: membership.org_id },
+      });
 
-    if (membersData) {
-      setMembers(membersData.map((m) => ({
-        id: m.id,
-        user_id: m.user_id,
-        role: m.role as AppRole,
-        joined_at: m.joined_at,
-      })));
+      if (!error && data?.members) {
+        setMembers(data.members.map((m: any) => ({
+          id: m.id,
+          user_id: m.user_id,
+          role: m.role as AppRole,
+          joined_at: m.joined_at,
+          email: m.email || undefined,
+        })));
+      }
+    } catch {
+      // Fallback: load from org_members directly (no emails)
+      const { data: membersData } = await supabase
+        .from("org_members")
+        .select("*")
+        .eq("org_id", membership.org_id)
+        .order("joined_at", { ascending: true });
+
+      if (membersData) {
+        setMembers(membersData.map((m) => ({
+          id: m.id,
+          user_id: m.user_id,
+          role: m.role as AppRole,
+          joined_at: m.joined_at,
+        })));
+      }
     }
 
     setLoading(false);
