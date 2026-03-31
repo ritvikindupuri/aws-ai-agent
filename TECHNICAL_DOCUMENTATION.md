@@ -2154,3 +2154,41 @@ Combined with the unified audit engine (Section 23), guarded IAM and security gr
 For environments requiring the highest level of network isolation, the VPC Endpoint configuration guide (Section 21) enables fully private AWS API routing with zero code changes. The WORM S3 audit archive meets SEC Rule 17a-4, FINRA, CFTC, SOC 2 Type II, and FedRAMP evidence requirements.
 
 Through its robust technical foundation and relentless commitment to real data over simulation, CloudPilot AI empowers security teams to identify and remediate vulnerabilities faster and more effectively than ever before.
+
+---
+
+## 33. Role-Based Access Control (RBAC) & Team Management
+
+To support enterprise deployments, CloudPilot AI implements a comprehensive Role-Based Access Control (RBAC) system that organizes users into Teams. This ensures that AWS operations, scan results, and chat histories can be securely shared or segregated among different users based on their assigned roles.
+
+### Team Management Data Model
+
+The RBAC implementation uses three core tables in Supabase, protected by Row Level Security (RLS) to enforce tenant isolation:
+
+- **`teams`**: Represents the organization or workspace. Auto-created when a user first signs up.
+- **`team_members`**: Associates a `user_id` with a `team_id` and assigns a specific role.
+- **`team_invites`**: Manages pending email invitations, recording the desired role and the inviter.
+
+### Roles and Permissions
+
+The system supports four distinct roles, providing granular access control:
+
+| Role | Capabilities |
+|------|--------------|
+| **Owner** | Full access. Can invite/remove members, change any role (including other admins), manage AWS credentials, and execute automated actions. |
+| **Admin** | Can invite new members (up to Admin level), manage Analyst/Read-Only members, manage AWS credentials, and execute automated actions. |
+| **Analyst** | Can chat with the agent, run manual scans, view reports, and manage their own AWS credentials. Cannot invite members or manage team-wide settings. |
+| **Read Only** | Can only view existing reports, drift digests, and historical chat logs. Cannot trigger new API calls or modify settings. |
+
+### UI Flow and Components
+
+The team management interface is exposed via the **Operations Control Plane** (`/operations`) through the `TeamManagement` component.
+
+1. **Member Listing**: Displays all active users in the team, sorted by role.
+2. **Role Assignment**: Owners and Admins see a dropdown next to members (excluding Owners) to seamlessly change their roles in real-time.
+3. **Invite Flow**: Admins/Owners can input an email address and select a role to generate a pending invite. Pending invites are displayed in a separate list and can be revoked before they are accepted.
+
+### Security and Isolation
+
+- **Row Level Security (RLS)**: Enforces that users can only `SELECT` teams, members, and invites associated with the `team_id` they belong to.
+- **Action Guardrails**: Database policies (`INSERT`, `UPDATE`, `DELETE`) specifically check that the authenticated user holds an `owner` or `admin` role in the relevant team before allowing modifications to `team_members` or `team_invites`.

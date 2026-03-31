@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, FileText, Layers3, PlayCircle, RefreshCcw, Shield, SlidersHorizontal, TrendingUp, ShieldCheck, Clock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, FileText, Layers3, PlayCircle, RefreshCcw, Shield, SlidersHorizontal, TrendingUp, ShieldCheck, Clock, AlertTriangle, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import TeamManagement from "@/components/TeamManagement";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -789,6 +790,19 @@ const Operations = () => {
             ))}
           </div>
         </section>
+
+        <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <div>
+            <p className="text-[10px] font-mono text-muted-foreground tracking-widest uppercase flex items-center gap-2">
+              <Users className="w-3.5 h-3.5 text-primary" />
+              Role-Based Access Control
+            </p>
+            <h2 className="text-lg font-semibold text-foreground mt-1">Team Management</h2>
+            <p className="text-sm text-muted-foreground mt-1">Manage team members, roles, and pending invitations.</p>
+          </div>
+          <TeamManagement />
+        </section>
+
       </div>
 
       <Dialog open={Boolean(editingPolicy)} onOpenChange={(open) => !open && setEditingPolicy(null)}>
