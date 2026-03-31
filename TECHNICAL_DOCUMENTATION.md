@@ -52,17 +52,19 @@ By tightly coupling LLM reasoning capabilities with strict, restricted, and audi
 29. [AWS Organizations Automation](#29-aws-organizations-automation)
 30. [Runbook Execution Engine](#30-runbook-execution-engine)
 31. [Operations Control Plane](#31-operations-control-plane)
-32. [AES-256-GCM Credential Vault](#32-aes-256-gcm-credential-vault)
-33. [RBAC & Multi-Tenant Organization System](#33-rbac--multi-tenant-organization-system)
-34. [Multi-Factor Authentication (MFA) Enrollment](#34-multi-factor-authentication-mfa-enrollment)
-35. [Edge Function Rate Limiting](#35-edge-function-rate-limiting)
-36. [Webhook Notification Integrations — Slack, PagerDuty & Generic](#36-webhook-notification-integrations--slack-pagerduty--generic)
-37. [Guided Onboarding Wizard](#37-guided-onboarding-wizard)
-38. [End-to-End Test Suite](#38-end-to-end-test-suite)
-39. [Team Management UI](#39-team-management-ui)
-40. [SSO/SAML Integration Preparation](#40-ssosaml-integration-preparation)
-41. [Production Readiness Roadmap](#41-production-readiness-roadmap)
-42. [Conclusion](#42-conclusion)
+32. [Dual Approval Workflow — Governed High-Risk Execution](#32-dual-approval-workflow--governed-high-risk-execution)
+33. [Compliance Evidence Exports & Immutable Audit Timeline](#33-compliance-evidence-exports--immutable-audit-timeline)
+34. [AES-256-GCM Credential Vault](#34-aes-256-gcm-credential-vault)
+35. [RBAC & Multi-Tenant Organization System](#35-rbac--multi-tenant-organization-system)
+36. [Multi-Factor Authentication (MFA) Enrollment](#36-multi-factor-authentication-mfa-enrollment)
+37. [Edge Function Rate Limiting](#37-edge-function-rate-limiting)
+38. [Webhook Notification Integrations — Slack, PagerDuty & Generic](#38-webhook-notification-integrations--slack-pagerduty--generic)
+39. [Guided Onboarding Wizard](#39-guided-onboarding-wizard)
+40. [End-to-End Test Suite](#40-end-to-end-test-suite)
+41. [Team Management UI](#41-team-management-ui)
+42. [SSO/SAML Integration Preparation](#42-ssosaml-integration-preparation)
+43. [Production Readiness Roadmap](#43-production-readiness-roadmap)
+44. [Conclusion](#44-conclusion)
 
 ---
 
@@ -141,7 +143,7 @@ This diagram illustrates the complete four-layer architecture of CloudPilot AI a
   - **`aws-exchange-credentials`** (255 lines) — Handles the STS credential exchange protocol. Validates raw user credentials, calls `STS:GetCallerIdentity` and `STS:GetSessionToken` (or `STS:AssumeRole`), performs pre-flight IAM boundary checks via `SimulatePrincipalPolicy`, and returns only temporary session credentials.
   - **`guardian-scheduler`** (850+ lines) — The scheduled automation engine with AES-256-GCM credential decryption and token-bucket rate limiting. Authenticated via `GUARDIAN_AUTOMATION_WEBHOOK_SECRET`, it runs cost anomaly scans, drift detection, and alert dispatch on a schedule triggered by `pg_cron` (PostgreSQL-native cron). Contains full cost data fetching, anomaly detection, idle EC2 analysis, and drift scanning logic. The `pg_cron` job executes hourly using `pg_net` to POST to the function endpoint.
   - **`guardian-event-processor`** (499 lines) — The real-time CloudTrail event reactor. Enriches incoming CloudTrail events, scores risk, matches against built-in and user-defined policies, and executes auto-fix actions (e.g., restoring S3 public access blocks, restarting CloudTrail logging, revoking world-open security group rules). Also triggers runbook executions and records drift events.
-  - **`aws-credential-vault`** (170 lines) — The AES-256-GCM credential encryption/decryption service. Uses PBKDF2 with 100,000 iterations to derive per-user encryption keys from the service role key. Handles `encrypt_and_store` (for client credential submission) and `decrypt` (for guardian-scheduler autonomous scans). See Section 32 for full details.
+  - **`aws-credential-vault`** (170 lines) — The AES-256-GCM credential encryption/decryption service. Uses PBKDF2 with 100,000 iterations to derive per-user encryption keys from the service role key. Handles `encrypt_and_store` (for client credential submission) and `decrypt` (for guardian-scheduler autonomous scans). See Section 34 for full details.
   - **`webhook-notify`** (250 lines) — The external notification dispatcher. Sends Guardian alerts, auto-fix notifications, drift events, and cost anomalies to Slack (Block Kit), PagerDuty (Events API v2), or generic webhook endpoints. Manages webhook registration, listing, and deletion. See Section 36 for full details.
 
 - **AI Layer:** The Lovable AI Gateway proxies requests to two Google Gemini models. The **Intent Classifier** uses Gemini 2.5 Flash Lite (fastest, cheapest) for a single classification call that determines which tool subset to activate. The **Main Agent** uses Gemini 2.5 Flash (balanced speed and capability) for the multi-iteration agentic loop with tool calling. This two-model architecture reduces token usage by 40-70% on focused queries by excluding irrelevant tools from the context.
@@ -1775,7 +1777,7 @@ To enable fully autonomous scanning without manual credential injection, CloudPi
 
 #### Credential Encryption
 
-Credentials are encrypted server-side using **AES-256-GCM** via the `aws-credential-vault` edge function (see Section 32 for full details):
+Credentials are encrypted server-side using **AES-256-GCM** via the `aws-credential-vault` edge function (see Section 34 for full details):
 
 1. **Server-side encryption** (`aws-credential-vault`): The `AwsCredentialsPanel` sends raw credentials over TLS to the vault edge function, which derives a per-user AES-256 key using PBKDF2 (100,000 iterations) from the `SERVICE_ROLE_KEY` and a user-specific salt (`cloudpilot-vault-{user_id}`). Each credential field is encrypted with a random 12-byte IV and stored as `base64(IV || ciphertext)`.
 
@@ -2153,7 +2155,234 @@ The `summarizeAutoFixState` function in Operations.tsx reads the `auto_fixes` JS
 
 ---
 
-## 32. AES-256-GCM Credential Vault
+## 32. Dual Approval Workflow — Governed High-Risk Execution
+
+Guardian's automation layer enforces a strict dual approval workflow for high-risk operations, moving beyond simple single-confirmation gates into a governed execution model with clear accountability chains. This applies to production IAM policy changes, security group mutations on production resources, and organization-wide SCP rollouts — any action where a mistake could have blast-radius consequences.
+
+### Approval Architecture
+
+The approval system is built around two database tables — `approval_requests` and `approval_actions` — and a set of server-side functions in `aws-agent-ops/index.ts` that manage the full lifecycle from request creation through approval collection to final execution or failure.
+
+```mermaid
+sequenceDiagram
+    participant User as Requesting User
+    participant Agent as aws-agent-ops
+    participant DB as approval_requests Table
+    participant Approver1 as Approver A
+    participant Approver2 as Approver B
+    participant AWS as AWS API
+
+    User->>Agent: Request high-risk operation
+    Agent->>Agent: Evaluate risk level and environment
+    Agent->>DB: upsertApprovalRequest (status: pending_approval)
+    Agent-->>User: Preview with approval status (0/2 approvals)
+    
+    Approver1->>Agent: Approve (decision: approve)
+    Agent->>DB: recordApprovalAction (Approver A)
+    Agent->>DB: refreshApprovalRequestState (1/2)
+    Agent-->>Approver1: Partial approval (1/2, still pending)
+    
+    Approver2->>Agent: Approve (decision: approve)
+    Agent->>DB: recordApprovalAction (Approver B)
+    Agent->>DB: refreshApprovalRequestState (2/2)
+    Note over DB: Status transitions to approved
+    Agent->>AWS: Execute operation
+    Agent->>DB: markApprovalRequestExecuted
+    Agent-->>User: Execution complete with evidence
+```
+
+<div align="center">
+  <em>Figure 32.1: Dual Approval Sequence — From Request Through Multi-Approver Gate to Execution</em>
+</div>
+
+**Figure 32.1 Explanation:**
+
+When a user requests a high-risk operation, the agent evaluates the risk level and target environment. If the operation targets production resources or has organization-wide scope, the `requiredApprovals` count is set to 2 (or more), triggering the dual approval path. The `upsertApprovalRequest` function creates or updates a row in `approval_requests` with `dual_approval_required: true` and `status: pending_approval`. Each subsequent approval is recorded as a separate row in `approval_actions` with a unique constraint on `(approval_request_id, approver_user_id)` to prevent duplicate approvals from the same user. The `refreshApprovalRequestState` function recalculates the approval count and transitions the status to `approved` only when the threshold is met.
+
+### Server-Side Approval Functions
+
+The approval workflow is implemented through five coordinated functions in the `aws-agent-ops` edge function:
+
+| Function | Purpose | Key Behavior |
+|----------|---------|--------------|
+| `upsertApprovalRequest` | Creates or updates an approval request | Sets `dual_approval_required` flag based on `requiredApprovals > 1`; idempotent on `request_key` |
+| `recordApprovalAction` | Records an individual approver's decision | Uses `onConflict: "approval_request_id,approver_user_id"` to enforce one vote per approver |
+| `refreshApprovalRequestState` | Recalculates approval count and status | Counts distinct approvers with `decision = "approve"`; transitions to `approved` when threshold met |
+| `markApprovalRequestExecuted` | Records successful execution | Sets `status: "executed"`, stores `execution_payload`, and timestamps `executed_at` |
+| `markApprovalRequestFailed` | Records execution failure | Sets `status: "failed"` with error payload for post-mortem analysis |
+
+### Risk Classification and Approval Thresholds
+
+```mermaid
+flowchart TD
+    A[Incoming Operation] --> B{Target Environment}
+    B -- Production --> C{Operation Type}
+    B -- Non-production --> D[Single Approval Flow]
+    C -- IAM Policy Change --> E[Dual Approval Required]
+    C -- Security Group Mutation --> E
+    C -- Org-wide SCP Rollout --> F[Dual Approval + Rollback Required]
+    C -- Other --> D
+    D --> G[requiredApprovals = 1]
+    E --> H[requiredApprovals = 2]
+    F --> I[requiredApprovals = 2 + rollback plan mandatory]
+    G --> J[Standard confirm flow]
+    H --> K[Approval workflow with tracking]
+    I --> K
+```
+
+<div align="center">
+  <em>Figure 32.2: Risk Classification — How Operations Are Routed to Single or Dual Approval</em>
+</div>
+
+**Figure 32.2 Explanation:**
+
+The risk classification logic evaluates two dimensions: target environment and operation type. Production-targeted IAM changes, security group mutations, and organization-wide SCP rollouts require dual approval (`requiredApprovals = 2`). SCP rollouts additionally mandate a rollback plan as part of the approval preview. Non-production operations and lower-risk changes follow the standard single-confirmation flow. This classification ensures that the approval overhead is proportional to the blast radius of the operation.
+
+### Operations UI Integration
+
+The Operations Control Plane (Section 31) renders the approval workflow through a dedicated "Approval Workflows" panel that displays all `approval_requests` rows with:
+
+- **Summary**: Human-readable description of the pending operation
+- **Risk level badge**: Color-coded severity indicator (CRITICAL, HIGH, MEDIUM)
+- **Status badge**: Current workflow state (`pending_approval`, `approved`, `executed`, `failed`)
+- **Approval progress**: Shows `current_approvals / required_approvals` with dual approval indicator
+- **Approver records**: Lists each approver's truncated user ID and their decision
+
+The approval data is fetched via Supabase Realtime subscriptions on both `approval_requests` and `approval_actions` tables, ensuring the UI updates immediately when any team member submits an approval.
+
+### Approval Request Schema
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `request_key` | text | Idempotent key for deduplication |
+| `request_hash` | text | Content hash for integrity verification |
+| `operation_name` | text | The specific operation being approved |
+| `requester_user_id` | uuid | User who initiated the request |
+| `summary` | text | Human-readable operation description |
+| `risk_level` | text | CRITICAL, HIGH, MEDIUM, or LOW |
+| `required_approvals` | integer | Number of distinct approvals needed |
+| `current_approvals` | integer | Count of approvals received so far |
+| `dual_approval_required` | boolean | True when `required_approvals > 1` |
+| `status` | text | `pending_approval`, `approved`, `executed`, or `failed` |
+| `preview_payload` | jsonb | Full preview of what the operation will do |
+| `request_payload` | jsonb | The actual parameters for execution |
+| `evidence_payload` | jsonb | Compliance evidence captured at request time |
+| `execution_payload` | jsonb | Result payload after execution completes |
+| `executed_at` | timestamptz | Timestamp of execution (null until executed) |
+| `last_approved_at` | timestamptz | Timestamp of most recent approval |
+
+---
+
+## 33. Compliance Evidence Exports & Immutable Audit Timeline
+
+Enterprise compliance audits require demonstrable proof that security automation operated within governed boundaries. The compliance evidence export system and immutable audit timeline address this by providing cryptographically hashed evidence bundles and a unified, chronological view of all Guardian decisions, approvals, and executions.
+
+### Evidence Export Architecture
+
+```mermaid
+flowchart TD
+    A[Generate Export Button] --> B[Collect Evidence Bundle]
+    B --> C[Approval Requests]
+    B --> D[Approval Actions]
+    B --> E[Agent Audit Logs]
+    B --> F[Drift Events]
+    B --> G[Runbook Executions]
+    B --> H[Org History]
+    B --> I[Automation Runs]
+    B --> J[Live Event Activity]
+    C & D & E & F & G & H & I & J --> K[JSON Bundle Assembly]
+    K --> L[SHA-256 Hash Computation]
+    L --> M[Store in compliance_evidence_exports]
+    L --> N[Download as JSON File]
+    M --> O[Immutable Record with Hash]
+```
+
+<div align="center">
+  <em>Figure 33.1: Compliance Evidence Export Pipeline — From Data Collection to Hashed Artifact</em>
+</div>
+
+**Figure 33.1 Explanation:**
+
+The `handleGenerateEvidenceExport` function in `Operations.tsx` assembles a comprehensive evidence bundle from all operational data sources currently loaded in the Operations Control Plane. This includes approval requests and their individual approval actions, agent audit log entries, drift detection events, runbook execution history with step-level detail, organization operation history, automation runtime records, and live Guardian event activity. The assembled JSON bundle is passed through the Web Crypto API's `SHA-256` digest function to produce a deterministic hash. Both the bundle and its hash are persisted to the `compliance_evidence_exports` table, and the bundle is simultaneously downloaded as a timestamped JSON file for offline archival.
+
+### Evidence Bundle Contents
+
+Each compliance evidence export captures a complete snapshot of the operational state at the moment of generation:
+
+| Data Source | Table | Records Included |
+|-------------|-------|-----------------|
+| Approval requests | `approval_requests` | All recorded approval workflows with status, approver counts, and execution timestamps |
+| Approval actions | `approval_actions` | Individual approver decisions with user IDs and timestamps |
+| Agent audit logs | `agent_audit_log` | AWS API call records with service, operation, status, and error details |
+| Drift events | `guardian_drift_events` | Baseline comparison results with severity and resource identifiers |
+| Runbook executions | `guardian_runbook_executions` | Playbook runs with step-level results and completion status |
+| Organization history | `guardian_org_history` | Cross-account operation records with blast radius details |
+| Automation runs | `automation_runs` | Scheduler and processor execution history with timing and summary data |
+| Event activity | `guardian_event_activity` | Processed CloudTrail events with auto-fix status and matched policies |
+
+### SHA-256 Integrity Verification
+
+The evidence hash serves as a tamper-detection mechanism. The hash is computed client-side using the Web Crypto API before the bundle is stored:
+
+```typescript
+const encoded = new TextEncoder().encode(JSON.stringify(evidenceBundle));
+const digest = await crypto.subtle.digest("SHA-256", encoded);
+const evidenceHash = Array.from(new Uint8Array(digest))
+  .map((byte) => byte.toString(16).padStart(2, "0"))
+  .join("");
+```
+
+This hash is stored alongside the bundle in `compliance_evidence_exports`. During an audit, the hash can be recomputed from the stored bundle to verify that the evidence has not been modified since generation. This provides a lightweight integrity guarantee suitable for SOC 2 Type II and similar compliance frameworks that require evidence of control effectiveness.
+
+### Compliance Evidence Export Schema
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | uuid | Primary key |
+| `user_id` | uuid | User who generated the export |
+| `title` | text | Human-readable export label with generation timestamp |
+| `export_type` | text | Type of export (currently `audit_timeline`) |
+| `status` | text | Generation status (`generated`) |
+| `evidence_hash` | text | SHA-256 hash of the evidence bundle for integrity verification |
+| `evidence_bundle` | jsonb | Complete evidence payload |
+| `filters` | jsonb | Summary counts of included record types |
+| `generated_at` | timestamptz | Timestamp of export generation |
+
+### Immutable Audit Timeline
+
+The Operations Control Plane renders a unified "Immutable Audit Timeline" section that merges three data sources into a single chronological feed:
+
+```mermaid
+flowchart LR
+    A[approval_requests] --> D[Merge by Timestamp]
+    B[approval_actions] --> D
+    C[agent_audit_log] --> D
+    D --> E[Chronological Timeline]
+    E --> F[Approval Workflow Entry]
+    E --> G[Approver Decision Entry]
+    E --> H[AWS API Execution Entry]
+```
+
+<div align="center">
+  <em>Figure 33.2: Immutable Audit Timeline — Three-Source Merge into Unified Chronological View</em>
+</div>
+
+**Figure 33.2 Explanation:**
+
+The `immutableTimeline` computed value in `Operations.tsx` merges approval requests (with their approval progress and status), individual approval actions (showing who approved what and when), and agent audit log entries (recording every AWS API call with its outcome). All entries are sorted by timestamp in descending order, creating a single chronological feed that shows the complete chain of accountability: who requested an action, who approved it, and what AWS operations were executed as a result.
+
+Each timeline entry displays:
+
+- **Title**: The operation summary, approver decision description, or AWS API call identifier
+- **Detail**: Contextual information such as approval progress (`2/2 approval(s)`), decision type, or AWS service and operation name
+- **Status badge**: Color-coded indicator showing the current state (executed, pending, approved, failed, success, error)
+- **Timestamp**: Precise creation time for audit trail reconstruction
+
+This unified view transforms disparate operational data into a coherent narrative that auditors can follow from initial request through approval gates to final execution — the core requirement for demonstrating governed automation to compliance reviewers.
+
+---
+
+## 34. AES-256-GCM Credential Vault
 
 The `aws-credential-vault` edge function replaces the earlier client-side XOR cipher with a production-grade AES-256-GCM encryption scheme for stored AWS credentials. This is a critical security upgrade: XOR encryption is trivially reversible if the key is known, while AES-256-GCM provides authenticated encryption with integrity verification.
 
@@ -2178,10 +2407,10 @@ flowchart LR
 ```
 
 <div align="center">
-  <em>Figure 32.1: AES-256-GCM Credential Encryption Flow</em>
+  <em>Figure 34.1: AES-256-GCM Credential Encryption Flow</em>
 </div>
 
-**Figure 32.1 Explanation:**
+**Figure 34.1 Explanation:**
 
 Raw AWS credentials never persist on the client. When the user opts into Guardian scheduling, the `AwsCredentialsPanel` sends the raw keys to the `aws-credential-vault` edge function over TLS. The function authenticates the caller via their JWT, derives a user-specific AES-256 key using PBKDF2, encrypts each credential field (access key ID, secret access key, optional session token) with AES-256-GCM using a cryptographically random 12-byte IV, and stores the result as `base64(IV || ciphertext)` in the `stored_aws_credentials` table. The `guardian-scheduler` uses the identical PBKDF2 derivation to decrypt credentials during autonomous scans.
 
@@ -2234,7 +2463,7 @@ Each encrypted field is stored as a Base64 string containing:
 
 ---
 
-## 33. RBAC & Multi-Tenant Organization System
+## 35. RBAC & Multi-Tenant Organization System
 
 CloudPilot implements a full role-based access control (RBAC) system with multi-tenant isolation at the organization level. This is the foundation for enterprise team management.
 
@@ -2252,10 +2481,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 33.1: RBAC Role Hierarchy</em>
+  <em>Figure 35.1: RBAC Role Hierarchy</em>
 </div>
 
-**Figure 33.1 Explanation:**
+**Figure 35.1 Explanation:**
 
 The `app_role` enum defines four levels: `owner`, `admin`, `member`, and `viewer`. Each level inherits the permissions of levels below it. Owners have full control including billing and organization deletion. Admins can manage members and credentials. Members can use the agent and manage their own resources. Viewers have read-only access.
 
@@ -2316,7 +2545,7 @@ The `stored_aws_credentials` table includes an `org_id` column. RLS policies on 
 
 ---
 
-## 34. Multi-Factor Authentication (MFA) Enrollment
+## 36. Multi-Factor Authentication (MFA) Enrollment
 
 CloudPilot supports TOTP-based multi-factor authentication through the `MfaSetup` component, which integrates with the authentication provider's native MFA capabilities.
 
@@ -2342,10 +2571,10 @@ sequenceDiagram
 ```
 
 <div align="center">
-  <em>Figure 34.1: TOTP MFA Enrollment Sequence</em>
+  <em>Figure 36.1: TOTP MFA Enrollment Sequence</em>
 </div>
 
-**Figure 34.1 Explanation:**
+**Figure 36.1 Explanation:**
 
 The enrollment follows a three-phase process: (1) **Enrollment** — the auth API generates a TOTP secret and returns a QR code image; (2) **Challenge** — after the user scans the QR code with their authenticator app, the API creates a challenge; (3) **Verification** — the user enters the 6-digit code from their app, which is verified against the challenge. On success, MFA is permanently enabled for the account.
 
@@ -2365,7 +2594,7 @@ The `MfaSetup` component in the sidebar provides:
 
 ---
 
-## 35. Edge Function Rate Limiting
+## 37. Edge Function Rate Limiting
 
 All edge functions are protected by a server-side token-bucket rate limiter using the `rate_limit_entries` table. This prevents abuse, DoS attacks, and runaway automation loops.
 
@@ -2387,10 +2616,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 35.1: Token-Bucket Rate Limiting Flow</em>
+  <em>Figure 37.1: Token-Bucket Rate Limiting Flow</em>
 </div>
 
-**Figure 35.1 Explanation:**
+**Figure 37.1 Explanation:**
 
 Each request computes a rate limit key (e.g., `guardian-scheduler:autonomous` or `guardian-scheduler:{userId}`). The function queries the `rate_limit_entries` table for an existing entry within the current time window. If the count exceeds the maximum allowed requests, a 429 response with a `Retry-After` header is returned. Otherwise, the count is incremented and the request proceeds.
 
@@ -2416,7 +2645,7 @@ RLS: Service role only — the rate limit table is not accessible to authenticat
 
 ---
 
-## 36. Webhook Notification Integrations — Slack, PagerDuty & Generic
+## 38. Webhook Notification Integrations — Slack, PagerDuty & Generic
 
 The `webhook-notify` edge function enables Guardian alerts, auto-fix notifications, drift events, and cost anomalies to be delivered to external channels in real time.
 
@@ -2435,10 +2664,10 @@ flowchart LR
 ```
 
 <div align="center">
-  <em>Figure 36.1: Webhook Notification Dispatch Architecture</em>
+  <em>Figure 38.1: Webhook Notification Dispatch Architecture</em>
 </div>
 
-**Figure 36.1 Explanation:**
+**Figure 38.1 Explanation:**
 
 When Guardian processes an event or completes a scan, it calls the `webhook-notify` function with a structured payload. The function looks up all active webhooks for the user, filters by subscribed event types, and dispatches to each channel using the appropriate format: Slack Block Kit attachments with severity-colored sidebars, PagerDuty Events API v2 with proper severity mapping, or a generic JSON POST.
 
@@ -2493,7 +2722,7 @@ The `WebhookSettings` component in the sidebar provides:
 
 ---
 
-## 37. Guided Onboarding Wizard
+## 39. Guided Onboarding Wizard
 
 New users are greeted with a 4-step guided onboarding wizard (`OnboardingWizard` component) that walks them through connecting AWS credentials, enabling Guardian, and running their first security audit.
 
@@ -2508,7 +2737,7 @@ flowchart LR
 ```
 
 <div align="center">
-  <em>Figure 37.1: Onboarding Wizard Flow</em>
+  <em>Figure 39.1: Onboarding Wizard Flow</em>
 </div>
 
 | Step | Title | Content |
@@ -2528,7 +2757,7 @@ The wizard renders as a full-screen overlay (`fixed inset-0 z-50`) with a center
 
 ---
 
-## 38. End-to-End Test Suite
+## 40. End-to-End Test Suite
 
 CloudPilot includes a Playwright-based E2E test suite covering authentication, routing, and UI interaction flows.
 
@@ -2578,9 +2807,9 @@ npx playwright test e2e/auth.spec.ts
 
 ---
 
-## 39. Team Management UI
+## 41. Team Management UI
 
-The RBAC schema from Section 33 is now exposed through a dedicated Team Management page (`/team`), enabling org owners and admins to view members, assign roles, invite new users, and understand credential access policies — all from a single interface.
+The RBAC schema from Section 35 is now exposed through a dedicated Team Management page (`/team`), enabling org owners and admins to view members, assign roles, invite new users, and understand credential access policies — all from a single interface.
 
 ### Page Architecture
 
@@ -2598,10 +2827,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 39.1: Team Management Page — Role-Based UI Rendering</em>
+  <em>Figure 41.1: Team Management Page — Role-Based UI Rendering</em>
 </div>
 
-**Figure 39.1 Explanation:**
+**Figure 41.1 Explanation:**
 
 When a user navigates to `/team`, the component loads their org membership from the `org_members` table, determines their role, and conditionally renders management controls. Owners and admins see invite, role-change, and removal buttons. Members and viewers see a read-only list of team members and the credential access policy.
 
@@ -2639,10 +2868,10 @@ sequenceDiagram
 ```
 
 <div align="center">
-  <em>Figure 39.2: Member Invitation Sequence</em>
+  <em>Figure 41.2: Member Invitation Sequence</em>
 </div>
 
-**Figure 39.2 Explanation:**
+**Figure 41.2 Explanation:**
 
 The invite flow is initiated by owners or admins through the Invite Member button. The dialog collects the invitee's email address and desired role (admin, member, or viewer — owner cannot be assigned via invite). The role selector provides inline descriptions so the inviter understands the access implications of each role.
 
@@ -2653,7 +2882,7 @@ Role changes are performed through an inline dialog that:
 1. Shows the current member's truncated user ID for confirmation.
 2. Provides a role selector limited to admin, member, and viewer (owner role cannot be assigned through the UI to prevent privilege escalation).
 3. Displays the selected role's permission description for clarity.
-4. Executes an `UPDATE` on `org_members` via Supabase, protected by RLS policies that ensure only owners and admins can modify roles (see Section 33).
+4. Executes an `UPDATE` on `org_members` via Supabase, protected by RLS policies that ensure only owners and admins can modify roles (see Section 35).
 
 ### Access Control Matrix
 
@@ -2675,7 +2904,7 @@ The Team page is accessible from:
 
 ### Relationship to RBAC System
 
-This UI is the operational frontend for the RBAC infrastructure documented in Section 33. The database schema (`organizations`, `org_members`, `user_roles`), security definer functions (`is_org_member`, `get_org_role`, `has_role`), and RLS policies all power the Team page's data access and mutation controls. The auto-provisioning trigger ensures every new user has an organization ready for team management from their first login.
+This UI is the operational frontend for the RBAC infrastructure documented in Section 35. The database schema (`organizations`, `org_members`, `user_roles`), security definer functions (`is_org_member`, `get_org_role`, `has_role`), and RLS policies all power the Team page's data access and mutation controls. The auto-provisioning trigger ensures every new user has an organization ready for team management from their first login.
 
 ### `team-invite` Edge Function
 
@@ -2702,10 +2931,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 39.3: team-invite Edge Function — Invite and Member Listing Flow</em>
+  <em>Figure 41.3: team-invite Edge Function — Invite and Member Listing Flow</em>
 </div>
 
-**Figure 39.3 Explanation:**
+**Figure 41.3 Explanation:**
 
 The `team-invite` edge function supports two actions: `invite` (add a user by email) and `list_members_with_emails` (return all members with resolved email addresses). For invites, the function authenticates the caller, verifies they have owner or admin privileges, looks up the target user by email using the admin API, checks for duplicate membership, and inserts the new member with the specified role. For listing, it resolves all member user IDs to email addresses using the admin API, which is not accessible from the client. Both actions use the service role for privileged operations while enforcing authorization checks in code.
 
@@ -2725,7 +2954,7 @@ The `team-invite` edge function supports two actions: `invite` (add a user by em
 
 ---
 
-## 40. SSO/SAML Integration Preparation
+## 42. SSO/SAML Integration Preparation
 
 Enterprise procurement universally requires Single Sign-On (SSO) support, typically via SAML 2.0 or OpenID Connect (OIDC). While full SSO implementation requires identity provider (IdP) configuration that varies per customer, CloudPilot's architecture is designed to support SSO integration with minimal changes.
 
@@ -2747,10 +2976,10 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 40.1: Authentication Architecture — Current and Planned SSO Integration Path</em>
+  <em>Figure 42.1: Authentication Architecture — Current and Planned SSO Integration Path</em>
 </div>
 
-**Figure 40.1 Explanation:**
+**Figure 42.1 Explanation:**
 
 The current authentication flow supports email/password with optional TOTP MFA. The SSO path shows the planned integration: users would be redirected to their organization's identity provider, which returns a SAML assertion. The authentication backend validates this assertion and issues a standard JWT session, which flows into the same RBAC system used by all other auth methods. This means no changes are needed to the authorization layer — SSO users get the same `org_members` roles and RLS-enforced data isolation as email/password users.
 
@@ -2760,11 +2989,11 @@ The following infrastructure is already in place to support SSO:
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
-| Organization model | Ready | `organizations` table with auto-provisioning (Section 33) |
-| Role-based access control | Ready | Four-tier hierarchy with RLS enforcement (Section 33) |
-| Multi-tenant data isolation | Ready | `org_id` on credentials, RLS policies (Section 33) |
-| MFA as fallback | Ready | TOTP enrollment for non-SSO users (Section 34) |
-| Team management UI | Ready | Invite, role assignment, member removal (Section 39) |
+| Organization model | Ready | `organizations` table with auto-provisioning (Section 35) |
+| Role-based access control | Ready | Four-tier hierarchy with RLS enforcement (Section 35) |
+| Multi-tenant data isolation | Ready | `org_id` on credentials, RLS policies (Section 35) |
+| MFA as fallback | Ready | TOTP enrollment for non-SSO users (Section 36) |
+| Team management UI | Ready | Invite, role assignment, member removal (Section 41) |
 | JWT-based session management | Ready | All routes use `useAuth` hook with Supabase JWT |
 
 ### Remaining SSO Implementation Steps
@@ -2796,7 +3025,7 @@ The following infrastructure is already in place to support SSO:
 
 ---
 
-## 41. Production Readiness Roadmap
+## 43. Production Readiness Roadmap
 
 This section tracks the enterprise readiness status of each major capability area.
 
@@ -2804,15 +3033,17 @@ This section tracks the enterprise readiness status of each major capability are
 
 | Feature | Status | Section |
 |---------|--------|---------|
-| AES-256-GCM credential encryption | Implemented | 32 |
-| RBAC with org_members/user_roles | Schema + triggers deployed | 33 |
-| TOTP MFA enrollment | UI + auth integration complete | 34 |
-| Edge function rate limiting | Token-bucket on guardian-scheduler | 35 |
-| Slack/PagerDuty webhooks | Edge function + UI component | 36 |
-| Onboarding wizard | 4-step guided flow | 37 |
-| E2E test suite (Playwright) | Auth + routing coverage | 38 |
-| Team management UI + invite edge function | Full page with email-based invites | 39 |
-| SSO/SAML architecture preparation | Readiness checklist and integration plan | 40 |
+| AES-256-GCM credential encryption | Implemented | 34 |
+| RBAC with org_members/user_roles | Schema + triggers deployed | 35 |
+| Dual approval workflow for high-risk operations | Full lifecycle with approval_requests/approval_actions | 32 |
+| Compliance evidence exports with SHA-256 hashing | Export pipeline + immutable audit timeline | 33 |
+| TOTP MFA enrollment | UI + auth integration complete | 36 |
+| Edge function rate limiting | Token-bucket on guardian-scheduler | 37 |
+| Slack/PagerDuty webhooks | Edge function + UI component | 38 |
+| Onboarding wizard | 4-step guided flow | 39 |
+| E2E test suite (Playwright) | Auth + routing coverage | 40 |
+| Team management UI + invite edge function | Full page with email-based invites | 41 |
+| SSO/SAML architecture preparation | Readiness checklist and integration plan | 42 |
 
 ### Remaining Enterprise Requirements
 
@@ -2824,25 +3055,27 @@ This section tracks the enterprise readiness status of each major capability are
 | Exportable compliance reports (PDF/CSV) | MEDIUM | PDF export exists, CSV not implemented |
 | Data retention policy enforcement | LOW | Not started |
 | Load testing & performance benchmarks | LOW | Not started |
-| SOC 2 readiness documentation | LOW | Partial (WORM audit logging meets evidence requirements) |
+| SOC 2 readiness documentation | LOW | Partial (WORM audit logging + compliance evidence exports meet evidence requirements) |
 
 ---
 
-## 42. Conclusion
+## 44. Conclusion
 
 CloudPilot AI represents a significant advancement in applied generative AI for cloud security operations. By bridging the reasoning capabilities of Google's Gemini 2.5 Flash with the strict, deterministic execution of real AWS APIs across 35+ services, it eliminates the "hallucination" problem common in standard chat assistants through its uncompromising Zero Simulation Tolerance policy. The two-model architecture — Gemini 2.5 Flash Lite for intent classification and Gemini 2.5 Flash for the main agent — optimizes for both speed and accuracy, reducing token usage by 40-70% on focused queries.
 
-The architecture is meticulously designed for security at every layer: STS credential exchange ensures raw keys never reach the agent (Section 4); AES-256-GCM encryption with PBKDF2-derived per-user keys protects stored credentials at rest (Section 32); six defense-in-depth gates validate every tool call (Section 10); IAM blocked actions prevent privilege escalation through automation (Section 11); triple-sink audit logging provides forensic-grade accountability (Section 12); and TOTP-based MFA enrollment adds a second authentication factor (Section 34).
+The architecture is meticulously designed for security at every layer: STS credential exchange ensures raw keys never reach the agent (Section 4); AES-256-GCM encryption with PBKDF2-derived per-user keys protects stored credentials at rest (Section 36); six defense-in-depth gates validate every tool call (Section 10); IAM blocked actions prevent privilege escalation through automation (Section 11); triple-sink audit logging provides forensic-grade accountability (Section 12); and TOTP-based MFA enrollment adds a second authentication factor (Section 36).
 
-The backend's decomposed architecture — nine specialized edge functions including the credential vault and webhook dispatcher — ensures reliable deployment and clean separation of concerns. Token-bucket rate limiting (Section 35) protects all endpoints from abuse, while the `aws-executor` dynamic loader pattern solves the bundle timeout problem while supporting all 35 AWS service clients.
+The backend's decomposed architecture — nine specialized edge functions including the credential vault and webhook dispatcher — ensures reliable deployment and clean separation of concerns. Token-bucket rate limiting (Section 37) protects all endpoints from abuse, while the `aws-executor` dynamic loader pattern solves the bundle timeout problem while supporting all 35 AWS service clients.
 
-The enterprise foundation includes a full RBAC system with four-level role hierarchy (owner/admin/member/viewer), multi-tenant organization isolation, and auto-provisioning triggers (Section 33). The Team Management UI (Section 39) exposes this system through a dedicated page where owners can invite members, assign roles, and manage org-level credential access. External notification integrations via Slack, PagerDuty, and generic webhooks (Section 36) ensure security alerts reach ops teams through their existing toolchains.
+The enterprise foundation includes a full RBAC system with four-level role hierarchy (owner/admin/member/viewer), multi-tenant organization isolation, and auto-provisioning triggers (Section 35). The Team Management UI (Section 41) exposes this system through a dedicated page where owners can invite members, assign roles, and manage org-level credential access. External notification integrations via Slack, PagerDuty, and generic webhooks (Section 38) ensure security alerts reach ops teams through their existing toolchains.
 
-The comprehensive React frontend provides a professional interface with 55+ pre-built security workflows across 8 categories (Section 9), real-time SSE streaming, animated panels, date-grouped chat history, color-coded severity tracking, a guided onboarding wizard for new users (Section 37), and inline MFA/webhook management. The mandatory industry-grade report format (Section 15) ensures every response meets enterprise audit standards with compliance mapping across 17+ frameworks (Section 20).
+The governed automation layer elevates Guardian from safe automation into enterprise-grade governed automation. The dual approval workflow (Section 32) ensures that high-risk operations targeting production IAM, security groups, or organization-wide SCPs require multiple independent approvals before execution, with every decision recorded in `approval_requests` and `approval_actions` for full accountability. Compliance evidence exports (Section 35) bundle all operational data — approvals, audit logs, drift events, runbook executions, and event activity — into SHA-256 hashed JSON artifacts stored in `compliance_evidence_exports`, providing tamper-evident proof of control effectiveness for SOC 2 Type II and similar audits. The immutable audit timeline merges these three data sources into a unified chronological feed, giving auditors a clear narrative from initial request through approval gates to final execution.
+
+The comprehensive React frontend provides a professional interface with 55+ pre-built security workflows across 8 categories (Section 9), real-time SSE streaming, animated panels, date-grouped chat history, color-coded severity tracking, a guided onboarding wizard for new users (Section 41), and inline MFA/webhook management. The mandatory industry-grade report format (Section 15) ensures every response meets enterprise audit standards with compliance mapping across 17+ frameworks (Section 20).
 
 The Guardian automation layer (Section 28) transforms CloudPilot AI from a reactive chat tool into a proactive security operations platform: the scheduler enables continuous posture monitoring via AES-256-GCM encrypted stored credentials and autonomous multi-user scanning, while the event processor provides real-time threat response with auto-fix capabilities restricted to reversible critical events by a strict guardrail. The Operations Control Plane (Section 31) makes every Guardian decision transparent through explicit AUTO-FIX APPLIED / AUTO-FIX SUPPRESSED status badges on each processed event.
 
-Combined with the unified audit engine (Section 23), guarded IAM and security group automation (Sections 24–25), cost anomaly detection (Section 26), baseline-driven drift detection (Section 27), AWS Organizations controls (Section 29), the runbook execution engine (Section 30), the unified Operations Control Plane (Section 31), and Playwright-based E2E testing (Section 38), CloudPilot AI delivers an enterprise-grade security operations platform suitable for regulated industries including financial services, healthcare, and government.
+Combined with the unified audit engine (Section 23), guarded IAM and security group automation (Sections 24-25), cost anomaly detection (Section 26), baseline-driven drift detection (Section 27), AWS Organizations controls (Section 29), the runbook execution engine (Section 30), the unified Operations Control Plane (Section 31), dual approval workflows (Section 32), compliance evidence exports (Section 35), and Playwright-based E2E testing (Section 40), CloudPilot AI delivers an enterprise-grade security operations platform suitable for regulated industries including financial services, healthcare, and government.
 
 For environments requiring the highest level of network isolation, the VPC Endpoint configuration guide (Section 21) enables fully private AWS API routing with zero code changes. The WORM S3 audit archive meets SEC Rule 17a-4, FINRA, CFTC, SOC 2 Type II, and FedRAMP evidence requirements.
 
