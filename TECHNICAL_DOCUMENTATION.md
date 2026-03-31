@@ -2057,7 +2057,7 @@ graph TB
     subgraph AWS Environment
         A[CloudTrail Events] --> B[EventBridge Rule]
         B --> C[Lambda Forwarder]
-        D[EventBridge Scheduler] --> E[guardian-scheduler]
+        D[pg_cron Hourly] --> E[guardian-scheduler]
     end
 
     subgraph CloudPilot Backend
@@ -2068,12 +2068,15 @@ graph TB
     end
 
     subgraph Operations Control Plane
-        H -.-> I[Live Dashboard Updates]
+        H -.-> I[Live Dashboard Updates via Realtime]
         I --> J[Event Policies View]
         I --> K[Cost Rules View]
         I --> L[Drift and Baselines View]
         I --> M4[Runbook History with Step Streaming]
         I --> N[Organization Rollouts View]
+        I --> O[Guardian Autonomous Status]
+        I --> P2[Live Event Feed with Auto-Fix Status]
+        I --> Q2[Automation Runtime History]
     end
 ```
 
@@ -2083,17 +2086,54 @@ graph TB
 
 **Figure 31.1 Explanation:**
 
-The Operations page (`src/pages/Operations.tsx`, 600 lines) aggregates data from all automation tables into five interactive views:
+The Operations page (`src/pages/Operations.tsx`, 839 lines) aggregates data from all automation tables into eight interactive views:
 
-1. **Event Policies:** View and manage CloudTrail event response rules. Users define risk thresholds and response actions (notify, runbook, auto_fix) directly from the UI.
+1. **Guardian Autonomous Status:** Displays all credential sets enrolled in Guardian scanning (`stored_aws_credentials` where `guardian_enabled = true`). Each card shows the label, account ID, last scan timestamp, anomaly count parsed from `last_scan_status`, and an ACTIVE/PENDING badge. The status parser handles both JSON format (`{"status":"Completed","anomalies":3}`) and plain string format with regex extraction.
 
-2. **Cost Rules:** Active spend anomaly thresholds, their scopes, and required responses.
+2. **Live Event Feed with Auto-Fix Status:** Each processed CloudTrail event from `guardian_event_activity` shows the event name, resource, region, actor ARN, risk level badge, matched policies, and — critically — an explicit auto-fix status badge:
+   - **AUTO-FIX APPLIED** (green): At least one automatic remediation action was executed. Shows the count of applied actions.
+   - **AUTO-FIX SUPPRESSED** (red): Remediation was attempted but blocked by the guardrail. Shows the count of suppressed actions and indicates they were suppressed by policy guardrails.
+   - **NO AUTO-FIX** (neutral): No automatic remediation was attempted for this event.
+   
+   This is implemented by the `summarizeAutoFixState` function, which inspects the `auto_fixes` array for each event. Each item has an `applied` boolean — `true` means the fix was executed, `false` or `skipped: true` means it was suppressed. The detail text provides a human-readable explanation of why.
 
-3. **Drift & Baselines:** Aggregated summary of baselined resources and unresolved drift events.
+3. **Automation Runtime History:** Records from the `automation_runs` table showing scheduler and processor execution history with source, mode, account, status, and summary JSON.
 
-4. **Runbook History (Live Streaming):** Active runbooks with real-time step streaming. The UI subscribes to Supabase Realtime for live step progression updates.
+4. **Event Policies:** View and manage CloudTrail event response rules. Users define risk thresholds and response actions (notify, runbook, auto_fix) directly from the UI with inline toggle and edit controls.
 
-5. **Organization Rollouts:** History of changes broadcasted across member accounts.
+5. **Cost Rules:** Active spend anomaly thresholds, their scopes, and required responses.
+
+6. **Drift & Baselines:** Aggregated summary of baselined resources and unresolved drift events with severity badges.
+
+7. **Runbook History (Live Streaming):** Active runbooks with expandable step-by-step progress. The UI subscribes to Supabase Realtime for live step progression updates.
+
+8. **Organization Rollouts:** History of changes broadcasted across member accounts with blast radius details.
+
+### Auto-Fix Status Transparency
+
+The auto-fix status system is a key trust mechanism for Guardian automation. Rather than simply showing that an event was processed, the Operations page makes the Guardian's decision-making visible:
+
+```mermaid
+flowchart TD
+    A[guardian_event_activity row] --> B{auto_fixes array present}
+    B -- Empty or null --> C[NO AUTO-FIX badge]
+    B -- Has items --> D[Inspect each item]
+    D --> E{Any item with applied = true}
+    E -- Yes --> F[AUTO-FIX APPLIED badge]
+    E -- No --> G{Any item with skipped = true or applied = false}
+    G -- Yes --> H[AUTO-FIX SUPPRESSED badge]
+    F --> I[Show count of applied and suppressed actions]
+    H --> J[Show count suppressed by policy guardrails]
+    C --> K[Show No automatic remediation was attempted]
+```
+
+<div align="center">
+  <em>Figure 31.2: Auto-Fix Status Resolution — From Event Activity Data to User-Visible Badge</em>
+</div>
+
+**Figure 31.2 Explanation:**
+
+The `summarizeAutoFixState` function in Operations.tsx reads the `auto_fixes` JSON array from each `guardian_event_activity` row. It counts items where `applied === true` (successful fixes) and items where `skipped === true` or `applied === false` (suppressed fixes). If any were applied, the badge is green with the applied count. If all were suppressed, the badge is red with the suppressed count and an explanation that policy guardrails blocked execution. If no auto-fix items exist, a neutral badge indicates no remediation was attempted. This aligns with the `canAutoFixEvent` guardrail in the event processor (Section 28), which only allows auto-fix for reversible CRITICAL events.
 
 ---
 
