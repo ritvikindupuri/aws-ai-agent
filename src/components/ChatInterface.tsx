@@ -26,6 +26,9 @@ const ChatInterface = () => {
   const [credentials, setCredentials] = useState<AwsCredentials | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
+    return !localStorage.getItem("cloudpilot-onboarding-complete");
+  });
   const [notificationEmail, setNotificationEmail] = useState<string>(() => {
     return localStorage.getItem("cloudpilot-notification-email") || "";
   });
