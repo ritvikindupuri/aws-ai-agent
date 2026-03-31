@@ -83,6 +83,8 @@ graph TB
         B6[aws-exchange-credentials - STS Exchange]
         B7[guardian-scheduler - Scheduled Automation]
         B8[guardian-event-processor - CloudTrail Reactor]
+        B9[aws-credential-vault - AES-256-GCM Encryption]
+        B10[webhook-notify - Slack/PagerDuty Dispatcher]
         C[(Supabase Database)]
         D[Supabase Auth]
     end
