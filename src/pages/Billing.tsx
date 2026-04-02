@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, CreditCard, Check, Shield, Zap, Info, Loader2, ExternalLink, Receipt, AlertCircle } from "lucide-react";
+import { ArrowLeft, CreditCard, Check, Shield, Zap, Info, Loader2, ExternalLink, Receipt, AlertCircle, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,6 +26,18 @@ interface Payment {
 }
 
 const PLANS = [
+  {
+    id: "free",
+    name: "Free",
+    price: 0,
+    icon: Gift,
+    features: [
+      "5 API Executions / day",
+      "Single AWS Account",
+      "Basic Security Scans",
+      "Community Support",
+    ],
+  },
   {
     id: "pro",
     name: "Pro",
@@ -284,7 +296,7 @@ const Billing = () => {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {PLANS.map((plan) => {
             const isCurrentPlan = subscription?.plan_name === plan.id && subscription?.status === "active";
             const Icon = plan.icon;
@@ -309,8 +321,8 @@ const Billing = () => {
                     <h3 className="text-xl font-bold text-foreground">{plan.name}</h3>
                   </div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold">${plan.price}</span>
-                    <span className="text-muted-foreground text-sm">/ seat / mo</span>
+                    <span className="text-4xl font-bold">{plan.price === 0 ? "Free" : `$${plan.price}`}</span>
+                    {plan.price > 0 && <span className="text-muted-foreground text-sm">/ seat / mo</span>}
                   </div>
                 </div>
 
@@ -324,8 +336,18 @@ const Billing = () => {
                 </div>
 
                 {isCurrentPlan ? (
-                  <Button className="w-full mt-8" variant="outline" onClick={handleManageSubscription} disabled={portalLoading}>
-                    {portalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Manage Subscription"}
+                  plan.id === "free" ? (
+                    <Button className="w-full mt-8" variant="outline" disabled>
+                      Current Plan
+                    </Button>
+                  ) : (
+                    <Button className="w-full mt-8" variant="outline" onClick={handleManageSubscription} disabled={portalLoading}>
+                      {portalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Manage Subscription"}
+                    </Button>
+                  )
+                ) : plan.id === "free" ? (
+                  <Button className="w-full mt-8" variant="outline" disabled>
+                    {subscription?.plan_name && subscription.plan_name !== "free" ? "Included" : "Current Plan"}
                   </Button>
                 ) : (
                   <Button
@@ -336,10 +358,10 @@ const Billing = () => {
                   >
                     {checkoutLoading === plan.id ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : subscription ? (
+                    ) : subscription && subscription.plan_name !== "free" ? (
                       `Switch to ${plan.name}`
                     ) : (
-                      `Subscribe to ${plan.name}`
+                      `Upgrade to ${plan.name}`
                     )}
                   </Button>
                 )}
