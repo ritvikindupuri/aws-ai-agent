@@ -27,6 +27,18 @@ interface Payment {
 
 const PLANS = [
   {
+    id: "free",
+    name: "Free",
+    price: 0,
+    icon: Gift,
+    features: [
+      "5 API Executions / day",
+      "Single AWS Account",
+      "Basic Security Scans",
+      "Community Support",
+    ],
+  },
+  {
     id: "pro",
     name: "Pro",
     price: 49,
