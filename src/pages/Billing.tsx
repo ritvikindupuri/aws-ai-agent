@@ -336,8 +336,18 @@ const Billing = () => {
                 </div>
 
                 {isCurrentPlan ? (
-                  <Button className="w-full mt-8" variant="outline" onClick={handleManageSubscription} disabled={portalLoading}>
-                    {portalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Manage Subscription"}
+                  plan.id === "free" ? (
+                    <Button className="w-full mt-8" variant="outline" disabled>
+                      Current Plan
+                    </Button>
+                  ) : (
+                    <Button className="w-full mt-8" variant="outline" onClick={handleManageSubscription} disabled={portalLoading}>
+                      {portalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Manage Subscription"}
+                    </Button>
+                  )
+                ) : plan.id === "free" ? (
+                  <Button className="w-full mt-8" variant="outline" disabled>
+                    {subscription?.plan_name && subscription.plan_name !== "free" ? "Included" : "Current Plan"}
                   </Button>
                 ) : (
                   <Button
@@ -348,10 +358,10 @@ const Billing = () => {
                   >
                     {checkoutLoading === plan.id ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : subscription ? (
+                    ) : subscription && subscription.plan_name !== "free" ? (
                       `Switch to ${plan.name}`
                     ) : (
-                      `Subscribe to ${plan.name}`
+                      `Upgrade to ${plan.name}`
                     )}
                   </Button>
                 )}
