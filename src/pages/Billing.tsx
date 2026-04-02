@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, CreditCard, Check, Shield, Zap, Info, Loader2, ExternalLink, Receipt, AlertCircle } from "lucide-react";
+import { ArrowLeft, CreditCard, Check, Shield, Zap, Info, Loader2, ExternalLink, Receipt, AlertCircle, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
