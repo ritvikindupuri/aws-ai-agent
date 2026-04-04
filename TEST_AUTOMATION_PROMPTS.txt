@@ -83,68 +83,104 @@ Apply the deny-non-approved-regions SCP to all dev accounts in the organization.
 21. SCP rollout confirmation
 Apply to N accounts
 
-22. Production SCP dual approval preview
-Apply the deny-non-approved-regions SCP to all prod accounts in the organization. Allow only us-east-1 and eu-west-1. Show a formal preview with the exact account count, warnings, rollback requirement, and approval status. Do not execute until the required approvals are satisfied.
-
 
 Runbooks
 
-23. Public S3 lockdown runbook plan
+22. Public S3 lockdown runbook plan
 Run the public S3 lockdown playbook for customer-data-bucket. Show the full formal step plan first, identify which steps are automatic and which require confirmation, and wait for me to say run playbook before executing.
 
-24. Data breach response plan
+23. Data breach response plan
 Run incident response for a suspected data breach. Show the full formal step plan, the confirmation gates, the manual steps, and the rollback notes before execution.
 
-25. Cost spike dry run
+24. Cost spike dry run
 Run the cost spike remediation playbook in dry-run mode. Execute all query steps for real, stop before any AWS action steps, and return a formal report of what would happen next.
 
-26. Start planned runbook
+25. Start planned runbook
 Run playbook
 
-27. Confirm paused runbook step
+26. Confirm paused runbook step
 Confirm
 
-28. Abort active runbook
+27. Abort active runbook
 Abort
 
 
 Event-driven automation
 
-29. Create world-open SSH response policy
+28. Create world-open SSH response policy
 If anyone opens port 22 to the world, close it immediately and page me.
 
-30. Create IAM user creation alert policy
+29. Create IAM user creation alert policy
 Alert the security team whenever a new IAM user is created outside Guardian.
 
-31. Create root account usage response policy
+30. Create root account usage response policy
 If root account is used for anything, wake up the on-call immediately.
 
-32. Replay recent CloudTrail events
+31. Replay recent CloudTrail events
 Replay the last 24 hours of CloudTrail events against my response policies and return a formal backtest report showing which events would have triggered which policies. Do not use emojis.
 
-33. Replay recent CloudTrail events with auto-fix decisions
+32. Replay recent CloudTrail events with auto-fix decisions
 Replay the last 24 hours of CloudTrail events against my current response policies and return a formal report that explicitly states, for each matched event, whether auto-fix would be applied, suppressed by guardrails, or not attempted.
 
-34. Create CloudTrail disablement response policy
+33. Create CloudTrail disablement response policy
 If CloudTrail logging is disabled, restore it immediately, notify the security team, and trigger the appropriate runbook.
 
 
 Operations UI verification
 
-35. Create data for Operations page
+34. Create data for Operations page
 Create or refresh enough automation state for the Operations page by listing my active event response policies, saved cost rules, latest drift status, recent runbook executions, recent organization operation history, recent live event activity, and recent automation runtime records in a formal summary.
 
-36. Guardian credential status summary
+35. Guardian credential status summary
 List every stored AWS credential set Guardian knows about, the last scan time, the latest scan outcome, and the current anomaly count for each credential set in a formal summary.
 
-37. Latest live event activity summary
+36. Latest live event activity summary
 Show me the latest live Guardian event activity. Include event name, risk level, affected resource, matched policy, and whether auto-fix was applied, suppressed, or not attempted.
 
-38. Latest automation runtime summary
+37. Latest automation runtime summary
 Show me the most recent Guardian automation runtime entries for scheduled scans and event processing, including status, scan type, timestamps, and any summary counts.
 
-39. Production IAM approval preview
-Prepare a least-privilege IAM policy to give the IAM group prod-analytics read-only S3 access to arn:aws:s3:::prod-analytics-bucket and arn:aws:s3:::prod-analytics-bucket/* only. Show the preview, approval status, and wait for the required approvals before executing.
 
-40. Production security group approval preview
-Open port 443 to 203.0.113.0/24 on the security group prod-web-sg. Show the exact rule preview, approval status, and wait for the required approvals before executing.
+Compliance Command Center
+
+38. CIS benchmark report seed
+Run a real CIS AWS Foundations Benchmark style assessment for this account. Check IAM password policy, root MFA, root access keys, CloudTrail multi-region logging, Config recorder status, default security group behavior, S3 Block Public Access, GuardDuty enablement, and Security Hub status. Return a formal control-by-control pass/fail report with evidence.
+
+39. NIST-focused compliance report seed
+Run a formal NIST 800-53 oriented compliance assessment for this AWS account. Focus on identity controls, logging coverage, encryption defaults, security group exposure, public S3 access, and detective controls. Return a detailed report with mapped controls, pass/fail status, evidence, and remediation priorities.
+
+40. PCI readiness report seed
+Assess this AWS account for PCI-DSS relevant gaps. Evaluate internet exposure, least privilege, logging, encryption, key management, and cardholder-data-adjacent storage risks. Return a formal report with framework mapping, failing controls, compensating controls, and recommended fixes.
+
+41. SOC 2 report seed with evidence language
+Am I SOC 2 ready? Run a formal compliance-focused unified audit covering IAM, S3, security groups, EC2, encryption, logging, and change monitoring gaps. Return a checklist-style report with explicit evidence statements that an auditor could review.
+
+42. Evidence export source report
+Generate a formal audit timeline report that summarizes my latest compliance findings, recent approval-gated changes, drift activity, runbook executions, and audit log coverage. Structure the output so it can be used as evidence for an auditor export bundle.
+
+43. Exception candidate report
+Review my current compliance posture and identify any failing controls that may need a temporary risk exception rather than immediate remediation. Return each exception candidate with framework, control ID, business impact, compensating controls, suggested owner, and suggested expiration date.
+
+44. Attestation planning report
+Build a quarterly attestation plan for this AWS environment covering SOC 2, CIS, and incident response evidence. Recommend recurring review items, control owners, due dates, and the evidence each attestation should verify.
+
+45. Auditor export summary
+Prepare an auditor-ready summary of this environment. Include framework coverage, top failing controls, open exceptions, upcoming attestations, recent approval requests, and recent AWS API audit evidence in a formal summary.
+
+
+Compliance UI verification
+
+46. Seed Compliance Command Center
+Create or refresh enough compliance-focused state for the Compliance Command Center by generating one or more framework-mapped reports, evidence-oriented summaries, and approval-related audit data that would make the dashboard, trend views, and report library meaningful.
+
+47. Framework dashboard verification
+Summarize my current compliance posture across CIS, SOC 2, NIST, PCI-DSS, ISO 27001, and HIPAA. For each framework, show passing areas, failing areas, and notable evidence themes in a way that can be visually checked against the Compliance dashboard.
+
+48. Exception workflow verification
+List the compliance gaps most likely to require documented exceptions instead of immediate fixes. For each one, provide framework, control ID, severity, justification summary, suggested owner, and review/expiry guidance so I can validate exception entry behavior.
+
+49. Attestation workflow verification
+Produce a compliance review schedule for the next 90 days covering quarterly reviews, evidence refreshes, and sign-off checkpoints. Include framework, attestation title, cadence, owner suggestion, due date, and notes so I can validate attestation scheduling behavior.
+
+50. Auditor bundle verification
+Generate a formal auditor handoff summary that references the latest compliance findings, evidence exports, approvals, and AWS audit trail activity. Make it structured enough that I can compare it against the Compliance Command Center export history and evidence trail panels.

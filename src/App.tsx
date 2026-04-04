@@ -10,6 +10,7 @@ import Auth from "./pages/Auth.tsx";
 import Report from "./pages/Report.tsx";
 import ReportsHistory from "./pages/ReportsHistory.tsx";
 import Operations from "./pages/Operations.tsx";
+import Compliance from "./pages/Compliance.tsx";
 import Team from "./pages/Team.tsx";
 import Billing from "./pages/Billing.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -75,6 +76,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Operations />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/compliance"
+        element={
+          <ProtectedRoute>
+            <Compliance />
           </ProtectedRoute>
         }
       />
