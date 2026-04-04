@@ -904,7 +904,8 @@ The quick actions and tool definitions from Sections 8–9 operate within a stri
 flowchart TD
     A[User Input] --> B[Input Validation Layer]
     B --> C[STS Session-Only Enforcement]
-    C --> D[AI System Prompt Constraints]
+    C --> Z[Zero Global State SDK Config]
+    Z --> D[AI System Prompt Constraints]
     D --> E[Tool Call Interception]
     E --> F{Service Allowlist - 35 services}
     F -- Blocked --> G[Error returned to AI]
@@ -918,24 +919,26 @@ flowchart TD
 ```
 
 <div align="center">
-  <em>Figure 10.1: Defense-in-Depth Security Layers — Every Tool Call Passes Through Six Validation Gates</em>
+  <em>Figure 10.1: Defense-in-Depth Security Layers — Every Tool Call Passes Through Seven Validation Gates</em>
 </div>
 
 **Figure 10.1 Explanation:**
 
-This flowchart shows the six security layers every tool call must pass through:
+This flowchart shows the seven security layers every tool call must pass through:
 
 1. **Input Validation Layer:** Message array size (max 100), content length (max 50,000 chars), credential format regex, control character sanitization.
 
 2. **STS Session-Only Enforcement:** `aws-agent` rejects any request without a `sessionToken` field, ensuring raw credentials never reach the agent.
 
-3. **AI System Prompt Constraints:** The 575-line system prompt explicitly prohibits simulation, fabrication, and provides strict tool usage protocols.
+3. **Ephemeral Compute Isolation & Zero Global State:** AWS SDK clients are exclusively instantiated with localized credential and retry configurations (e.g., `new AWS.S3({ credentials, maxRetries })`). The global `AWS.config.update()` method is strictly prohibited. This enforces zero global state pollution and prevents cross-tenant credential exposure in shared Deno isolates, which is a critical requirement for SOC 2 Type II compliance.
 
-4. **Service Allowlist:** The `ALLOWED_AWS_SERVICES` set contains 35 approved services. Any request to an unlisted service is rejected with an error returned to the AI.
+4. **AI System Prompt Constraints:** The 575-line system prompt explicitly prohibits simulation, fabrication, and provides strict tool usage protocols.
 
-5. **Operation Blocklist:** The `BLOCKED_OPERATIONS` set contains 5 permanently blocked destructive operations (see Section 8).
+5. **Service Allowlist:** The `ALLOWED_AWS_SERVICES` set contains 35 approved services. Any request to an unlisted service is rejected with an error returned to the AI.
 
-6. **Response Truncation:** AWS API responses exceeding 100,000 characters are truncated with `[TRUNCATED]` marker.
+6. **Operation Blocklist:** The `BLOCKED_OPERATIONS` set contains 5 permanently blocked destructive operations (see Section 8).
+
+7. **Response Truncation:** AWS API responses exceeding 100,000 characters are truncated with `[TRUNCATED]` marker.
 
 After all gates pass, the call is logged to three audit sinks (detailed in Section 12) before execution.
 
@@ -3277,6 +3280,7 @@ The following operational gaps were explicitly resolved to make the application 
 | Gap Resolved | Why It Matters |
 | --- | --- |
 | **Email verification enforced** | Ensures users cannot sign up without confirming their identity. |
+| **Zero Global State AWS SDK Config** | Removed `AWS.config.update()` to instantiate AWS clients with localized config. Prevents cross-tenant credential exposure in shared Deno isolates, required for SOC 2 Type II compliance. |
 | **SSO/SAML integration built** | Allows enterprises to enforce Okta/Azure AD integration across their seat allocations. |
 | **Billing & Subscription layer added** | Full Stripe integration with checkout, webhooks, customer portal, and payment history (Section 43). |
 | **Edge functions enforce `verify_jwt = true`** | Prevents skipped authentication on public-facing APIs, securing the system for production workloads. |
