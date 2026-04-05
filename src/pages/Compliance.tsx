@@ -140,11 +140,11 @@ const Compliance = () => {
       const [{ data: conversations }, { data: exportRows }, { data: exceptionRows }, { data: attestationRows }, { data: approvalRows }, { data: auditRows }] = await Promise.all([
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (supabase.from("conversations" as any).select("id, title").eq("user_id", user.id).order("updated_at", { ascending: false }) as any),
-        supabase.from("compliance_evidence_exports").select("*").order("created_at", { ascending: false }),
-        supabase.from("compliance_exceptions").select("*").order("created_at", { ascending: false }),
-        supabase.from("compliance_attestations").select("*").order("due_at", { ascending: true }),
-        supabase.from("approval_requests").select("*").order("created_at", { ascending: false }).limit(40),
-        supabase.from("agent_audit_log").select("*").order("created_at", { ascending: false }).limit(80),
+        (supabase.from("compliance_evidence_exports" as any).select("*").order("created_at", { ascending: false }) as any),
+        (supabase.from("compliance_exceptions" as any).select("*").order("created_at", { ascending: false }) as any),
+        (supabase.from("compliance_attestations" as any).select("*").order("due_at", { ascending: true }) as any),
+        (supabase.from("approval_requests" as any).select("*").order("created_at", { ascending: false }).limit(40) as any),
+        (supabase.from("agent_audit_log").select("*").order("created_at", { ascending: false }).limit(80) as any),
       ]);
 
       let reportRows: ComplianceReportRecord[] = [];
@@ -169,11 +169,11 @@ const Compliance = () => {
       }
 
       setReports(reportRows);
-      setExports(exportRows ?? []);
-      setExceptions(exceptionRows ?? []);
-      setAttestations(attestationRows ?? []);
-      setApprovals(approvalRows ?? []);
-      setAuditLogs(auditRows ?? []);
+      setExports((exportRows ?? []) as any);
+      setExceptions((exceptionRows ?? []) as any);
+      setAttestations((attestationRows ?? []) as any);
+      setApprovals((approvalRows ?? []) as any);
+      setAuditLogs((auditRows ?? []) as any);
       setLoading(false);
     };
 
@@ -191,7 +191,7 @@ const Compliance = () => {
   const controlHealth = useMemo(() => summarizeControlHealth(frameworkSummaries), [frameworkSummaries]);
   const openExceptions = useMemo(() => exceptions.filter((item) => item.status !== "approved" && item.status !== "expired"), [exceptions]);
   const dueAttestations = useMemo(
-    () => attestations.filter((item) => item.status !== "completed" && new Date(item.due_at).getTime() <= Date.now() + 1000 * 60 * 60 * 24 * 30),
+    () => attestations.filter((item: any) => item.status !== "completed" && new Date(item.due_at).getTime() <= Date.now() + 1000 * 60 * 60 * 24 * 30),
     [attestations],
   );
   const approvalBacklog = useMemo(() => approvals.filter((item) => item.status.includes("pending")), [approvals]);
@@ -212,7 +212,7 @@ const Compliance = () => {
       return;
     }
 
-    const payload: Database["public"]["Tables"]["compliance_exceptions"]["Insert"] = {
+    const payload: any = {
       user_id: user.id,
       framework: exceptionForm.framework,
       control_id: exceptionForm.control_id.trim(),
@@ -225,13 +225,13 @@ const Compliance = () => {
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase.from("compliance_exceptions").insert(payload).select("*").single();
+    const { data, error } = await (supabase.from("compliance_exceptions" as any).insert(payload).select("*").single() as any);
     if (error || !data) {
       toast.error("Failed to create exception.");
       return;
     }
 
-    setExceptions((prev) => [data, ...prev]);
+    setExceptions((prev: any) => [data, ...prev]);
     setExceptionForm({
       framework: exceptionForm.framework,
       control_id: "",
@@ -250,7 +250,7 @@ const Compliance = () => {
       return;
     }
 
-    const payload: Database["public"]["Tables"]["compliance_attestations"]["Insert"] = {
+    const payload: any = {
       user_id: user.id,
       framework: attestationForm.framework,
       title: attestationForm.title.trim(),
@@ -262,13 +262,13 @@ const Compliance = () => {
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase.from("compliance_attestations").insert(payload).select("*").single();
+    const { data, error } = await (supabase.from("compliance_attestations" as any).insert(payload).select("*").single() as any);
     if (error || !data) {
       toast.error("Failed to schedule attestation.");
       return;
     }
 
-    setAttestations((prev) => [...prev, data].sort((a, b) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime()));
+    setAttestations((prev: any) => [...prev, data].sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime()));
     setAttestationForm({
       framework: attestationForm.framework,
       title: "",
