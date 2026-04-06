@@ -420,7 +420,7 @@ const ChatInterface = () => {
                       )}
                     </div>
 
-                    <QuickActions onAction={handleQuickAction} disabled={isLoading} />
+                    <QuickActions onAction={handleQuickAction} disabled={isLoading} credentials={credentials} />
                   </div>
                 )}
               </div>
@@ -639,7 +639,7 @@ const ChatInterface = () => {
             {credentials && (
               <div>
                 <p className="text-[10px] font-mono text-muted-foreground tracking-widest uppercase mb-2 px-1">QUICK ACTIONS</p>
-                <QuickActions onAction={handleQuickAction} disabled={isLoading} />
+                <QuickActions onAction={handleQuickAction} disabled={isLoading} credentials={credentials} />
               </div>
             )}
 
