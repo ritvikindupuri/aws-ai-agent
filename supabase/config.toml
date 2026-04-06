@@ -1,7 +1,7 @@
 project_id = "lomerqywiwxlblpunkdl"
 
 [functions.aws-agent]
-verify_jwt = true
+verify_jwt = false
 
 [functions.aws-agent-tools]
 verify_jwt = true
