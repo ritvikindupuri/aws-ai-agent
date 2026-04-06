@@ -5968,6 +5968,7 @@ serve(async (req) => {
         accessKeyId: sanitizeString(accessKeyId, 128),
         secretAccessKey: sanitizeString(secretAccessKey, 256),
         sessionToken: sanitizeString(sessionToken, 2048),
+
       },
       region,
       maxRetries: 4,
