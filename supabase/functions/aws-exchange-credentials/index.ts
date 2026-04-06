@@ -276,6 +276,13 @@ serve(async (req) => {
     const isInvalidToken = errorCode === "InvalidClientTokenId";
     const isSignatureMismatch =
       errorCode === "SignatureDoesNotMatch" || errorCode === "IncompleteSignature";
+    const isHandledCredentialError =
+      isInvalidToken ||
+      isSignatureMismatch ||
+      isAccessDenied ||
+      errorCode === "ExpiredToken" ||
+      errorCode === "InvalidAccessKeyId" ||
+      errorCode === "AuthFailure";
 
     console.error("[aws-exchange-credentials] Validation failed", {
       errorCode,
@@ -294,12 +301,13 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
+        ok: false,
         error: friendlyMessage,
         code: errorCode,
         details: message,
       }),
       {
-        status: isAccessDenied ? 403 : 400,
+        status: isHandledCredentialError ? 200 : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );

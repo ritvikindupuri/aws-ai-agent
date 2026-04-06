@@ -99,7 +99,7 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
       );
 
       const data = await resp.json();
-      if (!resp.ok) {
+      if (!resp.ok || data?.ok === false || !data?.sessionCredentials) {
         throw new Error(data.error || `Validation failed (${resp.status})`);
       }
 
