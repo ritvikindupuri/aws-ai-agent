@@ -374,6 +374,26 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
                       <li>Paste the <span className="font-mono">AKIA…</span> key + secret above. Leave Session Token empty.</li>
                     </ol>
                   </details>
+                  <details className="group mb-2">
+                    <summary className="cursor-pointer list-none flex items-center justify-between gap-2 text-[11px] font-bold select-none">
+                      <span className="flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />
+                        Two AWS-side caveats to know
+                      </span>
+                      <span className="text-[9px] font-mono text-muted-foreground group-open:hidden">SHOW</span>
+                      <span className="text-[9px] font-mono text-muted-foreground hidden group-open:inline">HIDE</span>
+                    </summary>
+                    <div className="mt-2 space-y-2 text-[10px] text-foreground/80 leading-snug">
+                      <div className="p-2 rounded border border-border bg-muted/40">
+                        <p className="font-bold text-foreground mb-0.5">1. Service Control Policies (SCPs)</p>
+                        <p>If your AWS account is inside an AWS Organization with restrictive SCPs, those override this inline policy and can still block actions. Standalone accounts are unaffected.</p>
+                      </div>
+                      <div className="p-2 rounded border border-border bg-muted/40">
+                        <p className="font-bold text-foreground mb-0.5">2. Region & resource state</p>
+                        <p>The policy grants the permission, but the action still needs something to act on (e.g. an EC2 instance must exist in the selected region for <span className="font-mono">StopInstances</span> to do anything). This isn't a permission error — just AWS reality.</p>
+                      </div>
+                    </div>
+                  </details>
                   <p className="text-[10px] font-bold text-foreground mb-1.5 flex items-center gap-1.5">
                     <ShieldCheck className="w-3 h-3 text-primary" /> Inline policy JSON
                   </p>
