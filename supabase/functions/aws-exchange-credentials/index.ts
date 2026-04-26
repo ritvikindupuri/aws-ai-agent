@@ -1,6 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { STSClient, GetCallerIdentityCommand, GetSessionTokenCommand, AssumeRoleCommand } from "https://esm.sh/@aws-sdk/client-sts@3.744.0";
-import { IAMClient, SimulatePrincipalPolicyCommand } from "https://esm.sh/@aws-sdk/client-iam@3.744.0";
+import {
+  STSClient,
+  GetCallerIdentityCommand,
+  GetSessionTokenCommand,
+  AssumeRoleCommand,
+} from "https://esm.sh/@aws-sdk/client-sts@3.744.0";
+import {
+  IAMClient,
+  SimulatePrincipalPolicyCommand,
+} from "https://esm.sh/@aws-sdk/client-iam@3.744.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,7 +43,10 @@ serve(async (req) => {
     if (!credentials || typeof credentials !== "object") {
       return new Response(
         JSON.stringify({ error: "AWS credentials are required." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
       );
     }
 
@@ -43,7 +54,10 @@ serve(async (req) => {
     if (!AWS_REGION_REGEX.test(region)) {
       return new Response(
         JSON.stringify({ error: "Invalid AWS region format." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
       );
     }
 
@@ -57,30 +71,45 @@ serve(async (req) => {
 
     if (credentials.method === "access_key") {
       const accessKeyId = sanitizeCredentialValue(credentials.accessKeyId, 128);
-      const secretAccessKey = sanitizeCredentialValue(credentials.secretAccessKey, 256);
+      const secretAccessKey = sanitizeCredentialValue(
+        credentials.secretAccessKey,
+        256,
+      );
       const providedSessionToken = credentials.sessionToken
         ? sanitizeCredentialValue(credentials.sessionToken, 4096)
         : "";
 
       if (!accessKeyId || !secretAccessKey) {
         return new Response(
-          JSON.stringify({ error: "Access Key ID and Secret Access Key are required." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({
+            error: "Access Key ID and Secret Access Key are required.",
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
         );
       }
       if (!ACCESS_KEY_REGEX.test(accessKeyId)) {
         return new Response(
           JSON.stringify({ error: "Invalid Access Key ID format." }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
         );
       }
       if (accessKeyId.startsWith("ASIA") && !providedSessionToken) {
         return new Response(
           JSON.stringify({
-            error: "Temporary AWS credentials require a session token. Paste the Session Token together with the access key and secret.",
+            error:
+              "Temporary AWS credentials require a session token. Paste the Session Token together with the access key and secret.",
             code: "MissingSessionToken",
           }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
         );
       }
 
@@ -101,7 +130,9 @@ serve(async (req) => {
       };
 
       if (providedSessionToken) {
-        console.log("[aws-exchange-credentials] Temporary credentials provided, skipping GetSessionToken");
+        console.log(
+          "[aws-exchange-credentials] Temporary credentials provided, skipping GetSessionToken",
+        );
         tempCredentials = {
           accessKeyId,
           secretAccessKey,
@@ -110,8 +141,15 @@ serve(async (req) => {
         };
       } else {
         try {
-          const sessionData = await sts.send(new GetSessionTokenCommand({ DurationSeconds: 3600 }));
-          if (!sessionData.Credentials?.AccessKeyId || !sessionData.Credentials?.SecretAccessKey || !sessionData.Credentials?.SessionToken || !sessionData.Credentials?.Expiration) {
+          const sessionData = await sts.send(
+            new GetSessionTokenCommand({ DurationSeconds: 3600 }),
+          );
+          if (
+            !sessionData.Credentials?.AccessKeyId ||
+            !sessionData.Credentials?.SecretAccessKey ||
+            !sessionData.Credentials?.SessionToken ||
+            !sessionData.Credentials?.Expiration
+          ) {
             throw new Error("Incomplete session credentials returned.");
           }
 
@@ -122,11 +160,15 @@ serve(async (req) => {
             expiration: sessionData.Credentials.Expiration.toISOString(),
           };
         } catch (stsErr: any) {
-          const stsErrorCode = stsErr?.Code || stsErr?.code || stsErr?.name || "UnknownError";
-          console.warn("[aws-exchange-credentials] GetSessionToken failed, using original credentials", {
-            stsErrorCode,
-            message: stsErr?.message || "Unknown STS error",
-          });
+          const stsErrorCode =
+            stsErr?.Code || stsErr?.code || stsErr?.name || "UnknownError";
+          console.warn(
+            "[aws-exchange-credentials] GetSessionToken failed, using original credentials",
+            {
+              stsErrorCode,
+              message: stsErr?.message || "Unknown STS error",
+            },
+          );
 
           tempCredentials = {
             accessKeyId,
@@ -144,7 +186,10 @@ serve(async (req) => {
             error:
               "Invalid Role ARN format. Expected: arn:aws:iam::<account-id>:role/<role-name>",
           }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
         );
       }
 
@@ -152,7 +197,10 @@ serve(async (req) => {
       if (credentials.accessKeyId && credentials.secretAccessKey) {
         stsConfig.credentials = {
           accessKeyId: sanitizeCredentialValue(credentials.accessKeyId, 128),
-          secretAccessKey: sanitizeCredentialValue(credentials.secretAccessKey, 256),
+          secretAccessKey: sanitizeCredentialValue(
+            credentials.secretAccessKey,
+            256,
+          ),
           sessionToken: credentials.sessionToken
             ? sanitizeCredentialValue(credentials.sessionToken, 4096)
             : undefined,
@@ -160,13 +208,20 @@ serve(async (req) => {
       }
 
       const sts = new STSClient(stsConfig);
-      const assumedRole = await sts.send(new AssumeRoleCommand({
-        RoleArn: roleArn,
-        RoleSessionName: `CloudPilot-${Date.now()}`,
-        DurationSeconds: 3600,
-      }));
+      const assumedRole = await sts.send(
+        new AssumeRoleCommand({
+          RoleArn: roleArn,
+          RoleSessionName: `CloudPilot-${Date.now()}`,
+          DurationSeconds: 3600,
+        }),
+      );
 
-      if (!assumedRole.Credentials?.AccessKeyId || !assumedRole.Credentials?.SecretAccessKey || !assumedRole.Credentials?.SessionToken || !assumedRole.Credentials?.Expiration) {
+      if (
+        !assumedRole.Credentials?.AccessKeyId ||
+        !assumedRole.Credentials?.SecretAccessKey ||
+        !assumedRole.Credentials?.SessionToken ||
+        !assumedRole.Credentials?.Expiration
+      ) {
         throw new Error("Failed to assume role.");
       }
 
@@ -178,7 +233,9 @@ serve(async (req) => {
         },
         region,
       });
-      const callerIdentity = await assumedSts.send(new GetCallerIdentityCommand({}));
+      const callerIdentity = await assumedSts.send(
+        new GetCallerIdentityCommand({}),
+      );
       identity = {
         account: callerIdentity.Account || "",
         arn: callerIdentity.Arn || "",
@@ -193,8 +250,13 @@ serve(async (req) => {
       };
     } else {
       return new Response(
-        JSON.stringify({ error: `Unsupported credentials method: ${credentials.method}` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: `Unsupported credentials method: ${credentials.method}`,
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
       );
     }
 
@@ -208,47 +270,144 @@ serve(async (req) => {
     });
 
     const actionsToTest = [
-      "s3:ListAllMyBuckets",
-      "ec2:DescribeInstances",
-      "iam:ListUsers",
+      "apigateway:GET",
+      "budgets:ModifyBudget",
+      "ce:GetCostAndUsage",
       "cloudtrail:DescribeTrails",
-      "guardduty:ListDetectors",
-      "ec2:CreateVpc",
-      "ec2:CreateSubnet",
-      "ec2:CreateSecurityGroup",
-      "ec2:CreateRouteTable",
-      "ec2:CreateInternetGateway",
+      "cloudtrail:GetEventSelectors",
+      "cloudtrail:GetTrailStatus",
+      "cloudtrail:LookupEvents",
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:PutAnomalyDetector",
+      "cloudwatch:PutDashboard",
+      "cloudwatch:PutMetricAlarm",
+      "config:DescribeConfigurationRecorders",
+      "dynamodb:ListTables",
       "ec2:AttachInternetGateway",
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:CreateInternetGateway",
       "ec2:CreateRoute",
-      "ec2:DeleteVpc",
-      "ec2:DeleteSubnet",
-      "ec2:DeleteSecurityGroup",
-      "ec2:DeleteRouteTable",
+      "ec2:CreateRouteTable",
+      "ec2:CreateSecurityGroup",
+      "ec2:CreateSnapshot",
+      "ec2:CreateSubnet",
+      "ec2:CreateVpc",
       "ec2:DeleteInternetGateway",
-      "ec2:DetachInternetGateway",
       "ec2:DeleteRoute",
+      "ec2:DeleteRouteTable",
+      "ec2:DeleteSecurityGroup",
+      "ec2:DeleteSubnet",
+      "ec2:DeleteVpc",
+      "ec2:DescribeInstances",
+      "ec2:DescribeLaunchTemplates",
+      "ec2:DescribeNetworkAcls",
+      "ec2:DescribeNetworkInterfaces",
+      "ec2:DescribeRouteTables",
+      "ec2:DescribeSecurityGroups",
+      "ec2:DescribeVolumes",
+      "ec2:DescribeVpcEndpoints",
+      "ec2:DescribeVpcPeeringConnections",
+      "ec2:DetachInternetGateway",
+      "ec2:ModifyInstanceAttribute",
+      "ec2:ModifyInstanceMetadataOptions",
+      "ec2:ReplaceNetworkAclEntry",
+      "ec2:RevokeSecurityGroupEgress",
+      "ec2:RunInstances",
+      "ec2:StopInstances",
+      "ec2:TerminateInstances",
+      "ecs:DescribeTaskDefinition",
+      "ecs:ListTaskDefinitions",
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "guardduty:CreateDetector",
+      "guardduty:GetDetector",
+      "guardduty:GetFindings",
+      "guardduty:GetMalwareScanSettings",
+      "guardduty:ListDetectors",
+      "guardduty:ListFindings",
+      "iam:AttachUserPolicy",
+      "iam:CreatePolicy",
+      "iam:DetachUserPolicy",
+      "iam:GetAccountAuthorizationDetails",
+      "iam:GetAccountPasswordPolicy",
+      "iam:GetCredentialReport",
+      "iam:GetGroup",
+      "iam:ListAccessKeys",
+      "iam:ListAttachedUserPolicies",
+      "iam:ListMFADevices",
+      "iam:ListRoles",
+      "iam:ListUsers",
+      "iam:SimulatePrincipalPolicy",
+      "iam:UpdateAccessKey",
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:GetPolicy",
+      "lambda:ListFunctions",
+      "logs:DescribeMetricFilters",
+      "logs:FilterLogEvents",
+      "logs:GetQueryResults",
+      "logs:PutMetricFilter",
+      "logs:StartQuery",
+      "organizations:ListAccounts",
+      "organizations:ListPolicies",
+      "organizations:ListTargetsForPolicy",
+      "rds:DescribeDBClusters",
+      "rds:DescribeDBInstances",
+      "s3:GetAccountPublicAccessBlock",
+      "s3:GetBucketAcl",
+      "s3:GetBucketLogging",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:GetBucketVersioning",
+      "s3:GetEncryptionConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:ListAllMyBuckets",
+      "secretsmanager:GetResourcePolicy",
+      "secretsmanager:ListSecrets",
+      "securityhub:DescribeHub",
+      "securityhub:GetEnabledStandards",
+      "securityhub:GetFindings",
+      "ses:GetIdentityVerificationAttributes",
+      "ses:ListIdentities",
+      "sns:ListSubscriptions",
+      "sns:ListSubscriptionsByTopic",
+      "sns:ListTopics",
+      "ssm:DescribeParameters",
+      "ssm:GetParameters",
+      "sts:AssumeRole",
+      "wafv2:GetIPSet",
+      "wafv2:GetSampledRequests",
+      "wafv2:ListIPSets",
+      "wafv2:UpdateIPSet",
     ];
 
     const permissions: Record<string, boolean> = {};
 
     try {
-      const simResult = await iam.send(new SimulatePrincipalPolicyCommand({
-        PolicySourceArn: identity.arn,
-        ActionNames: actionsToTest,
-      }));
+      const simResult = await iam.send(
+        new SimulatePrincipalPolicyCommand({
+          PolicySourceArn: identity.arn,
+          ActionNames: actionsToTest,
+        }),
+      );
 
       if (simResult.EvaluationResults) {
         simResult.EvaluationResults.forEach((result) => {
           if (result.EvalActionName) {
-            permissions[result.EvalActionName] = result.EvalDecision === "allowed";
+            permissions[result.EvalActionName] =
+              result.EvalDecision === "allowed";
           }
         });
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn("SimulatePrincipalPolicy failed", e);
       actionsToTest.forEach((action) => {
         permissions[action] = false;
       });
+      // Optionally we could throw if they don't have iam:SimulatePrincipalPolicy,
+      // but right now it fails gracefully by setting everything to false.
+      // However, if we fail to simulate, we MUST NOT throw an error back to the frontend
+      // that prevents them from using the tool, we just mark permissions as denied/unverified.
     }
 
     return new Response(
@@ -263,10 +422,14 @@ serve(async (req) => {
         identity,
         permissions,
       }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
     );
   } catch (err: any) {
-    const errorCode = err?.Code || err?.code || err?.name || "CredentialValidationFailed";
+    const errorCode =
+      err?.Code || err?.code || err?.name || "CredentialValidationFailed";
     const message = err?.message || "Credential validation failed.";
     const statusCode = err?.$metadata?.httpStatusCode || err?.statusCode || 400;
     const isAccessDenied =
@@ -275,7 +438,8 @@ serve(async (req) => {
       statusCode === 403;
     const isInvalidToken = errorCode === "InvalidClientTokenId";
     const isSignatureMismatch =
-      errorCode === "SignatureDoesNotMatch" || errorCode === "IncompleteSignature";
+      errorCode === "SignatureDoesNotMatch" ||
+      errorCode === "IncompleteSignature";
     const isHandledCredentialError =
       isInvalidToken ||
       isSignatureMismatch ||
@@ -292,9 +456,11 @@ serve(async (req) => {
 
     let friendlyMessage = message;
     if (isInvalidToken) {
-      friendlyMessage = "AWS rejected the submitted credentials. This usually means the Access Key ID is inactive or deleted, the Secret Access Key does not match, or temporary credentials were pasted without the Session Token.";
+      friendlyMessage =
+        "AWS rejected the submitted credentials. This usually means the Access Key ID is inactive or deleted, the Secret Access Key does not match, or temporary credentials were pasted without the Session Token.";
     } else if (isSignatureMismatch) {
-      friendlyMessage = "AWS could not verify the Secret Access Key. Double-check the secret and remove any extra spaces or line breaks before retrying.";
+      friendlyMessage =
+        "AWS could not verify the Secret Access Key. Double-check the secret and remove any extra spaces or line breaks before retrying.";
     } else if (isAccessDenied) {
       friendlyMessage = `Access Denied: ${message}. Ensure your IAM user or role has sts:GetCallerIdentity and sts:GetSessionToken permissions.`;
     }
@@ -309,7 +475,7 @@ serve(async (req) => {
       {
         status: isHandledCredentialError ? 200 : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 });
