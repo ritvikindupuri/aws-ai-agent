@@ -412,7 +412,7 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
         "s3:GetEncryptionConfiguration",
         "s3:GetBucketVersioning",
         "s3:GetBucketLogging",
-        "s3:GetBucketReplication",
+        "s3:GetReplicationConfiguration",
         "s3:GetAccountPublicAccessBlock",
         "s3:GetBucketObjectLockConfiguration",
         "iam:GetAccountAuthorizationDetails",
@@ -499,13 +499,13 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
         "cloudwatch:PutAnomalyDetector",
         "cloudwatch:PutDashboard",
         "ecs:ListTaskDefinitions",
-        "ecs:DescribeTaskDefinitions",
+        "ecs:DescribeTaskDefinition",
         "ssm:DescribeParameters",
         "ssm:GetParameters",
         "secretsmanager:ListSecrets",
         "secretsmanager:GetResourcePolicy",
         "elasticloadbalancing:DescribeLoadBalancers",
-        "apigateway:GetRestApis",
+        "apigateway:GET",
         "sns:ListTopics",
         "sns:ListSubscriptionsByTopic",
         "sns:ListSubscriptions",
@@ -513,8 +513,7 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
         "ses:ListIdentities",
         "ses:GetIdentityVerificationAttributes",
         "sts:AssumeRole",
-        "budgets:CreateBudget",
-        "budgets:CreateNotification"
+        "budgets:ModifyBudget"
       ],
       "Resource": "*"
     }
