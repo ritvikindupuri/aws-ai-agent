@@ -6059,7 +6059,8 @@ serve(async (req) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${RUNTIME_CONFIG.supabaseServiceRoleKey}`,
+            Authorization: authHeader || "",
+            apikey: RUNTIME_CONFIG.supabaseAnonKey,
           },
           body: JSON.stringify({
             toolCalls: responseMessage.tool_calls,
