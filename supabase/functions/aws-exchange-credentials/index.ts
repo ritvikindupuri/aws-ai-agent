@@ -24,6 +24,14 @@ function sanitizeCredentialValue(val: unknown, maxLen: number): string {
   return sanitizeString(val, maxLen).replace(/\s+/g, "");
 }
 
+function toPolicySourceArn(identityArn: string): string {
+  const assumedRoleMatch = identityArn.match(/^arn:aws:sts::(\d{12}):assumed-role\/([^/]+)\//);
+  if (assumedRoleMatch) {
+    return `arn:aws:iam::${assumedRoleMatch[1]}:role/${assumedRoleMatch[2]}`;
+  }
+  return identityArn;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -54,6 +62,7 @@ serve(async (req) => {
       expiration: string;
     };
     let identity: { account: string; arn: string; userId: string };
+    let policySourceArn = "";
 
     if (credentials.method === "access_key") {
       const accessKeyId = sanitizeCredentialValue(credentials.accessKeyId, 128);
@@ -99,6 +108,7 @@ serve(async (req) => {
         arn: callerIdentity.Arn || "",
         userId: callerIdentity.UserId || "",
       };
+      policySourceArn = toPolicySourceArn(identity.arn);
 
       if (providedSessionToken) {
         console.log("[aws-exchange-credentials] Temporary credentials provided, skipping GetSessionToken");
@@ -184,6 +194,7 @@ serve(async (req) => {
         arn: callerIdentity.Arn || "",
         userId: callerIdentity.UserId || "",
       };
+      policySourceArn = roleArn;
 
       tempCredentials = {
         accessKeyId: assumedRole.Credentials.AccessKeyId,
@@ -208,47 +219,159 @@ serve(async (req) => {
     });
 
     const actionsToTest = [
-      "s3:ListAllMyBuckets",
-      "ec2:DescribeInstances",
-      "iam:ListUsers",
+      "apigateway:GET",
+      "budgets:ModifyBudget",
+      "budgets:ViewBudget",
+      "ce:GetCostAndUsage",
       "cloudtrail:DescribeTrails",
-      "guardduty:ListDetectors",
-      "ec2:CreateVpc",
-      "ec2:CreateSubnet",
-      "ec2:CreateSecurityGroup",
-      "ec2:CreateRouteTable",
-      "ec2:CreateInternetGateway",
+      "cloudtrail:GetEventSelectors",
+      "cloudtrail:GetTrailStatus",
+      "cloudtrail:LookupEvents",
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:PutAnomalyDetector",
+      "cloudwatch:PutDashboard",
+      "cloudwatch:PutMetricAlarm",
+      "config:DescribeConfigurationRecorders",
+      "config:DescribeConfigurationRecorderStatus",
+      "dynamodb:ListTables",
+      "ec2:AllocateAddress",
+      "ec2:AssociateRouteTable",
       "ec2:AttachInternetGateway",
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:CreateInternetGateway",
+      "ec2:CreateNatGateway",
       "ec2:CreateRoute",
-      "ec2:DeleteVpc",
-      "ec2:DeleteSubnet",
-      "ec2:DeleteSecurityGroup",
-      "ec2:DeleteRouteTable",
+      "ec2:CreateRouteTable",
+      "ec2:CreateSecurityGroup",
+      "ec2:CreateSnapshot",
+      "ec2:CreateSubnet",
+      "ec2:CreateTags",
+      "ec2:CreateVpc",
       "ec2:DeleteInternetGateway",
-      "ec2:DetachInternetGateway",
+      "ec2:DeleteNatGateway",
       "ec2:DeleteRoute",
+      "ec2:DeleteRouteTable",
+      "ec2:DeleteSecurityGroup",
+      "ec2:DeleteSubnet",
+      "ec2:DeleteTags",
+      "ec2:DeleteVpc",
+      "ec2:DescribeAddresses",
+      "ec2:DescribeInstances",
+      "ec2:DescribeInternetGateways",
+      "ec2:DescribeLaunchTemplates",
+      "ec2:DescribeNatGateways",
+      "ec2:DescribeNetworkAcls",
+      "ec2:DescribeNetworkInterfaces",
+      "ec2:DescribeRouteTables",
+      "ec2:DescribeSecurityGroups",
+      "ec2:DescribeSubnets",
+      "ec2:DescribeVolumes",
+      "ec2:DescribeVpcEndpoints",
+      "ec2:DescribeVpcPeeringConnections",
+      "ec2:DescribeVpcs",
+      "ec2:DetachInternetGateway",
+      "ec2:DisassociateRouteTable",
+      "ec2:ModifyInstanceAttribute",
+      "ec2:ModifyInstanceMetadataOptions",
+      "ec2:ReleaseAddress",
+      "ec2:ReplaceNetworkAclEntry",
+      "ec2:RevokeSecurityGroupEgress",
+      "ec2:RunInstances",
+      "ec2:StopInstances",
+      "ec2:TerminateInstances",
+      "ecs:DescribeTaskDefinition",
+      "ecs:ListTaskDefinitions",
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "guardduty:CreateDetector",
+      "guardduty:GetDetector",
+      "guardduty:GetFindings",
+      "guardduty:GetMalwareScanSettings",
+      "guardduty:ListDetectors",
+      "guardduty:ListFindings",
+      "guardduty:UpdateDetector",
+      "iam:AttachUserPolicy",
+      "iam:CreatePolicy",
+      "iam:DetachUserPolicy",
+      "iam:GenerateCredentialReport",
+      "iam:GetAccountAuthorizationDetails",
+      "iam:GetAccountPasswordPolicy",
+      "iam:GetCredentialReport",
+      "iam:GetGroup",
+      "iam:ListAccessKeys",
+      "iam:ListAttachedUserPolicies",
+      "iam:ListMFADevices",
+      "iam:ListRoles",
+      "iam:ListUsers",
+      "iam:SimulatePrincipalPolicy",
+      "iam:UpdateAccessKey",
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:GetPolicy",
+      "lambda:ListFunctions",
+      "logs:DescribeMetricFilters",
+      "logs:FilterLogEvents",
+      "logs:GetQueryResults",
+      "logs:PutMetricFilter",
+      "logs:StartQuery",
+      "organizations:ListAccounts",
+      "organizations:ListPolicies",
+      "organizations:ListTargetsForPolicy",
+      "rds:DescribeDBClusters",
+      "rds:DescribeDBInstances",
+      "s3:GetAccountPublicAccessBlock",
+      "s3:GetBucketAcl",
+      "s3:GetBucketLogging",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:GetBucketVersioning",
+      "s3:GetEncryptionConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:ListAllMyBuckets",
+      "secretsmanager:GetResourcePolicy",
+      "secretsmanager:ListSecrets",
+      "securityhub:DescribeHub",
+      "securityhub:GetEnabledStandards",
+      "securityhub:GetFindings",
+      "ses:GetIdentityVerificationAttributes",
+      "ses:ListIdentities",
+      "sns:ListSubscriptions",
+      "sns:ListSubscriptionsByTopic",
+      "sns:ListTopics",
+      "ssm:DescribeParameters",
+      "ssm:GetParameters",
+      "sts:AssumeRole",
+      "sts:GetCallerIdentity",
+      "sts:GetSessionToken",
+      "wafv2:GetIPSet",
+      "wafv2:GetSampledRequests",
+      "wafv2:ListIPSets",
+      "wafv2:UpdateIPSet",
     ];
 
     const permissions: Record<string, boolean> = {};
 
     try {
-      const simResult = await iam.send(new SimulatePrincipalPolicyCommand({
-        PolicySourceArn: identity.arn,
-        ActionNames: actionsToTest,
-      }));
+      const chunks = Array.from({ length: Math.ceil(actionsToTest.length / 100) }, (_, index) =>
+        actionsToTest.slice(index * 100, (index + 1) * 100)
+      );
 
-      if (simResult.EvaluationResults) {
-        simResult.EvaluationResults.forEach((result) => {
-          if (result.EvalActionName) {
-            permissions[result.EvalActionName] = result.EvalDecision === "allowed";
-          }
-        });
+      for (const actionBatch of chunks) {
+        const simResult = await iam.send(new SimulatePrincipalPolicyCommand({
+          PolicySourceArn: policySourceArn,
+          ActionNames: actionBatch,
+        }));
+
+        if (simResult.EvaluationResults) {
+          simResult.EvaluationResults.forEach((result) => {
+            if (result.EvalActionName) {
+              permissions[result.EvalActionName] = result.EvalDecision === "allowed";
+            }
+          });
+        }
       }
     } catch (e) {
       console.warn("SimulatePrincipalPolicy failed", e);
-      actionsToTest.forEach((action) => {
-        permissions[action] = false;
-      });
     }
 
     return new Response(
