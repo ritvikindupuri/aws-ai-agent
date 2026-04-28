@@ -56,21 +56,22 @@ export const VpcRoutingDialog = ({
 }: VpcRoutingDialogProps) => {
   const [showError, setShowError] = useState(false);
 
-  const { hasPermissions, missingPermissions, currentPermissions } = useMemo(() => {
-    if (!credentials?.permissions) {
-      return { hasPermissions: false, missingPermissions: REQUIRED_VPC_PERMISSIONS, currentPermissions: {} };
-    }
-
-    const missing = REQUIRED_VPC_PERMISSIONS.filter((p) => !credentials.permissions?.[p]);
+  const { hasElevationPerms, missingElevationPerms, currentPermissions } = useMemo(() => {
+    // With auto-elevation, the agent only needs IAMFullAccess-equivalent perms
+    // to attach AmazonEC2FullAccess on demand. We check the two key actions.
+    const ELEVATION_PERMS = ["iam:AttachUserPolicy", "iam:AttachRolePolicy" as const];
+    const perms = credentials?.permissions || {};
+    // Treat as elevatable if EITHER attach action is allowed (user OR role).
+    const canElevate = perms["iam:AttachUserPolicy"] === true;
     return {
-      hasPermissions: missing.length === 0,
-      missingPermissions: missing,
-      currentPermissions: credentials.permissions,
+      hasElevationPerms: canElevate,
+      missingElevationPerms: canElevate ? [] : ["iam:AttachUserPolicy"],
+      currentPermissions: perms,
     };
   }, [credentials]);
 
   const handleYes = () => {
-    if (hasPermissions) {
+    if (hasElevationPerms) {
       onAccept();
     } else {
       setShowError(true);
@@ -105,12 +106,12 @@ export const VpcRoutingDialog = ({
                   <h2 className="text-lg font-bold text-foreground mb-1">Route agent through AWS VPC?</h2>
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     Would you like to start a guided workflow for routing the agent through an isolated AWS VPC?
-                    This sends a setup request through the agent and checks for the EC2 permissions needed to provision networking resources, but it does not independently verify a completed PrivateLink deployment.
+                    CloudPilot will automatically attach <span className="font-mono text-foreground">AmazonEC2FullAccess</span> to your IAM principal on demand and provision the networking resources.
                   </p>
                   <div className="mt-3 p-3 bg-muted/30 rounded-md border border-border text-left">
-                    <p className="text-xs font-semibold mb-1">Exact Permissions Required:</p>
-                    <p className="text-[10px] text-muted-foreground font-mono leading-tight">
-                      {REQUIRED_VPC_PERMISSIONS.join(", ")}
+                    <p className="text-xs font-semibold mb-1">Required at setup (one-time):</p>
+                    <p className="text-[11px] text-muted-foreground leading-tight">
+                      <span className="font-mono text-foreground">SecurityAudit</span> + <span className="font-mono text-foreground">IAMFullAccess</span> AWS-managed policies on your IAM user. Per-service permissions (EC2, VPC, NAT, etc.) are granted automatically when needed.
                     </p>
                   </div>
                 </div>
@@ -146,34 +147,18 @@ export const VpcRoutingDialog = ({
 
               <div className="space-y-4 flex-1">
                 <div className="rounded-lg border border-border bg-muted/30 p-3">
-                  <h3 className="text-xs font-bold mb-2">Missing Permissions</h3>
+                  <h3 className="text-xs font-bold mb-2">Missing self-elevation permission</h3>
                   <ul className="space-y-1.5">
-                    {missingPermissions.map((p) => (
+                    {missingElevationPerms.map((p) => (
                       <li key={p} className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground">
                         <XCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0" />
                         {p}
                       </li>
                     ))}
                   </ul>
-                </div>
-
-                <div className="rounded-lg border border-border bg-muted/30 p-3">
-                  <h3 className="text-xs font-bold mb-2">Current VPC Permissions</h3>
-                  <ul className="space-y-1.5 max-h-32 overflow-y-auto scrollbar-thin pr-2">
-                    {REQUIRED_VPC_PERMISSIONS.map((p) => {
-                      const has = currentPermissions[p];
-                      return (
-                        <li key={p} className="flex items-center gap-2 text-[11px] font-mono">
-                          {has ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                          ) : (
-                            <XCircle className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
-                          )}
-                          <span className={has ? "text-foreground" : "text-muted-foreground/50"}>{p}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <p className="text-[10px] text-muted-foreground mt-2 leading-snug">
+                    Attach the <span className="font-mono text-foreground">IAMFullAccess</span> AWS-managed policy to your IAM user. CloudPilot will then attach <span className="font-mono text-foreground">AmazonEC2FullAccess</span> (and any other per-service policies) automatically when prompts run.
+                  </p>
                 </div>
 
                 <div className="pt-2 border-t border-border">
