@@ -26,23 +26,12 @@ export const VpcRoutingDialog = ({
 }: VpcRoutingDialogProps) => {
   const [showError, setShowError] = useState(false);
 
-  const { hasElevationPerms, missingElevationPerms } = useMemo(() => {
-    // With auto-elevation the agent only needs iam:AttachUserPolicy (granted
-    // by the IAMFullAccess managed policy) to attach per-service policies on demand.
-    const perms = credentials?.permissions || {};
-    const canElevate = perms["iam:AttachUserPolicy"] === true;
-    return {
-      hasElevationPerms: canElevate,
-      missingElevationPerms: canElevate ? [] : ["iam:AttachUserPolicy"],
-    };
-  }, [credentials]);
-
   const handleYes = () => {
-    if (hasElevationPerms) {
-      onAccept();
-    } else {
-      setShowError(true);
-    }
+    // No client-side pre-flight check. The aws-executor performs runtime
+    // auto-elevation (attaches AmazonEC2FullAccess on AccessDenied) using the
+    // user's IAMFullAccess. If elevation actually fails at runtime, the
+    // executor surfaces a precise error in the chat.
+    onAccept();
   };
 
   const handleReAuthSave = (newCreds: AwsCredentials) => {
