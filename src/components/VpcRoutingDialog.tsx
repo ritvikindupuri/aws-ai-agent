@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Server, ShieldAlert, ArrowRight, CheckCircle2, XCircle } from "lucide-react";
+import { Server, ShieldAlert, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import AwsCredentialsPanel, { type AwsCredentials } from "@/components/AwsCredentialsPanel";
@@ -14,37 +14,7 @@ interface VpcRoutingDialogProps {
   onReAuthenticate: (creds: AwsCredentials) => void;
 }
 
-const REQUIRED_VPC_PERMISSIONS = [
-  "ec2:CreateVpc",
-  "ec2:DescribeVpcs",
-  "ec2:CreateTags",
-  "ec2:DeleteTags",
-  "ec2:CreateSubnet",
-  "ec2:DescribeSubnets",
-  "ec2:CreateSecurityGroup",
-  "ec2:DescribeSecurityGroups",
-  "ec2:CreateRouteTable",
-  "ec2:DescribeRouteTables",
-  "ec2:AssociateRouteTable",
-  "ec2:DisassociateRouteTable",
-  "ec2:CreateInternetGateway",
-  "ec2:DescribeInternetGateways",
-  "ec2:AttachInternetGateway",
-  "ec2:CreateRoute",
-  "ec2:AllocateAddress",
-  "ec2:DescribeAddresses",
-  "ec2:ReleaseAddress",
-  "ec2:CreateNatGateway",
-  "ec2:DescribeNatGateways",
-  "ec2:DeleteNatGateway",
-  "ec2:DeleteVpc",
-  "ec2:DeleteSubnet",
-  "ec2:DeleteSecurityGroup",
-  "ec2:DeleteRouteTable",
-  "ec2:DeleteInternetGateway",
-  "ec2:DetachInternetGateway",
-  "ec2:DeleteRoute"
-];
+// VPC permissions are auto-granted on demand by aws-executor; no static list needed here.
 
 export const VpcRoutingDialog = ({
   open,
