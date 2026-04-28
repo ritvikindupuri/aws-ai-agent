@@ -1,9 +1,9 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, ShieldAlert, XCircle } from "lucide-react";
+import { Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import AwsCredentialsPanel, { type AwsCredentials } from "@/components/AwsCredentialsPanel";
+import { type AwsCredentials } from "@/components/AwsCredentialsPanel";
 
 interface VpcRoutingDialogProps {
   open: boolean;
@@ -24,8 +24,6 @@ export const VpcRoutingDialog = ({
   onDecline,
   onReAuthenticate,
 }: VpcRoutingDialogProps) => {
-  const [showError, setShowError] = useState(false);
-
   const handleYes = () => {
     // No client-side pre-flight check. The aws-executor performs runtime
     // auto-elevation (attaches AmazonEC2FullAccess on AccessDenied) using the
@@ -34,20 +32,11 @@ export const VpcRoutingDialog = ({
     onAccept();
   };
 
-  const handleReAuthSave = (newCreds: AwsCredentials) => {
-    onReAuthenticate(newCreds);
-    setShowError(false); // Reset error view to let it re-evaluate
-  };
-
   return (
-    <Dialog open={open} onOpenChange={(val) => {
-      onOpenChange(val);
-      if (!val) setShowError(false);
-    }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md p-0 overflow-hidden border-border bg-card">
         <AnimatePresence mode="wait">
-          {!showError ? (
-            <motion.div
+          <motion.div
               key="prompt"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -81,60 +70,6 @@ export const VpcRoutingDialog = ({
                 </div>
               </div>
             </motion.div>
-          ) : (
-            <motion.div
-              key="error"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="p-6 flex flex-col max-h-[85vh] overflow-y-auto scrollbar-thin"
-            >
-              <div className="flex items-start gap-3 mb-5">
-                <div className="w-10 h-10 rounded-full bg-destructive/10 border border-destructive/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <ShieldAlert className="w-5 h-5 text-destructive" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-foreground">Insufficient Permissions</h2>
-                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Your current credentials do not have the required permissions to automatically provision the VPC routing infrastructure.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-4 flex-1">
-                <div className="rounded-lg border border-border bg-muted/30 p-3">
-                  <h3 className="text-xs font-bold mb-2">Missing self-elevation permission</h3>
-                  <ul className="space-y-1.5">
-                    {missingElevationPerms.map((p) => (
-                      <li key={p} className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground">
-                        <XCircle className="w-3.5 h-3.5 text-destructive flex-shrink-0" />
-                        {p}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="text-[10px] text-muted-foreground mt-2 leading-snug">
-                    Attach the <span className="font-mono text-foreground">IAMFullAccess</span> AWS-managed policy to your IAM user. CloudPilot will then attach <span className="font-mono text-foreground">AmazonEC2FullAccess</span> (and any other per-service policies) automatically when prompts run.
-                  </p>
-                </div>
-
-                <div className="pt-2 border-t border-border">
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Please acknowledge this error, update your IAM role/user, and provide new credentials below to continue.
-                  </p>
-                  <AwsCredentialsPanel credentials={credentials} onSave={handleReAuthSave} compact />
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center mt-6 pt-4 border-t border-border">
-                <Button variant="ghost" size="sm" onClick={() => setShowError(false)} className="text-xs">
-                  Back
-                </Button>
-                <Button variant="outline" size="sm" onClick={onDecline} className="text-xs">
-                  Cancel VPC Setup
-                </Button>
-              </div>
-            </motion.div>
-          )}
         </AnimatePresence>
       </DialogContent>
     </Dialog>
