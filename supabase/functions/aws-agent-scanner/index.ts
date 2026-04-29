@@ -1320,7 +1320,7 @@ async function fetchCostRules(supabaseAdmin: any, userId: string): Promise<CostR
 }
 
 async function fetchCostData(awsConfig: any, daysBack = 14) {
-  const ce = new (AWS as any).CostExplorer(awsConfig);
+  const ce = v2Client("CostExplorer", awsConfig);
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(endDate.getDate() - daysBack);
