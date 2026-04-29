@@ -1924,7 +1924,7 @@ async function scanCost(awsConfig: any): Promise<UnifiedScannerResult> {
   let resourcesEvaluated = 0;
 
   try {
-    const ce = new (AWS as any).CostExplorer(awsConfig);
+    const ce = v2Client("CostExplorer", awsConfig);
     const end = new Date();
     const start = new Date();
     start.setDate(end.getDate() - 30);
