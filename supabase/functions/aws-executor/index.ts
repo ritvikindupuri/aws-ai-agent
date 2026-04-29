@@ -108,6 +108,7 @@ const SERVICE_TO_MANAGED_POLICY: Record<string, string> = {
   Shield: "arn:aws:iam::aws:policy/AWSShieldDRTAccessPolicy",
   NetworkFirewall: "arn:aws:iam::aws:policy/AWSNetworkFirewallServiceRolePolicy",
   CognitoIdentityServiceProvider: "arn:aws:iam::aws:policy/AmazonCognitoPowerUser",
+  Budgets: "arn:aws:iam::aws:policy/AWSBudgetsActionsWithAWSResourceControlAccess",
 };
 
 function isAccessDeniedError(e: any): boolean {
