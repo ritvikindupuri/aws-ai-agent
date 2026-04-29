@@ -1320,7 +1320,7 @@ async function fetchCostRules(supabaseAdmin: any, userId: string): Promise<CostR
 }
 
 async function fetchCostData(awsConfig: any, daysBack = 14) {
-  const ce = new (AWS as any).CostExplorer(awsConfig);
+  const ce = v2Client("CostExplorer", awsConfig);
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(endDate.getDate() - daysBack);
@@ -1924,7 +1924,7 @@ async function scanCost(awsConfig: any): Promise<UnifiedScannerResult> {
   let resourcesEvaluated = 0;
 
   try {
-    const ce = new (AWS as any).CostExplorer(awsConfig);
+    const ce = v2Client("CostExplorer", awsConfig);
     const end = new Date();
     const start = new Date();
     start.setDate(end.getDate() - 30);
@@ -2270,6 +2270,8 @@ const AWS_V3_SERVICE_MAP: Record<string, string> = {
   "Route53": "route53",
   "ELBv2": "elastic-load-balancing-v2",
   "AutoScaling": "auto-scaling",
+  "CostExplorer": "cost-explorer",
+  "Budgets": "budgets",
 };
 
 const ALLOWED_AWS_SERVICES = new Set(Object.keys(AWS_V3_SERVICE_MAP));
