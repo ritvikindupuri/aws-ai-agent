@@ -28,6 +28,7 @@ const _awsSvcMap: Record<string, string> = {
   ElastiCache: "elasticache", Redshift: "redshift",
   DynamoDB: "dynamodb", Route53: "route53",
   ELBv2: "elastic-load-balancing-v2", AutoScaling: "auto-scaling",
+  Budgets: "budgets",
 };
 
 const V3_CLIENT_NAMES: Record<string, string> = {
@@ -48,6 +49,7 @@ const V3_CLIENT_NAMES: Record<string, string> = {
   ElastiCache: "ElastiCacheClient", Redshift: "RedshiftClient",
   DynamoDB: "DynamoDBClient", Route53: "Route53Client",
   ELBv2: "ElasticLoadBalancingV2Client", AutoScaling: "AutoScalingClient",
+  Budgets: "BudgetsClient",
 };
 
 async function loadAwsModule(service: string): Promise<any> {
