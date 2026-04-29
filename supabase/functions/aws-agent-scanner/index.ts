@@ -2892,11 +2892,16 @@ serve(async (req) => {
                 awsExec(service, commandName, awsConfig, args.params || {})
               );
               const execTime = Date.now() - startTime;
-              const resultData = result;
+              const resultData = result ?? {};
 
               // Truncate very large responses to prevent context overflow
-              let resultStr = JSON.stringify(resultData);
-              if (resultStr.length > 100000) {
+              let resultStr: string;
+              try {
+                resultStr = JSON.stringify(resultData) ?? "{}";
+              } catch {
+                resultStr = "{}";
+              }
+              if (resultStr && resultStr.length > 100000) {
                 resultStr = resultStr.slice(0, 100000) + '... [TRUNCATED — response too large, narrow your query]';
               }
 
