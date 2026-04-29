@@ -24,6 +24,7 @@ function requireEnv(name: string): string {
 const RUNTIME_CONFIG = {
   supabaseUrl: requireEnv("SUPABASE_URL"),
   supabaseServiceRoleKey: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
+  supabaseAnonKey: requireEnv("SUPABASE_ANON_KEY"),
   lovableApiKey: requireEnv("LOVABLE_API_KEY"),
 };
 
@@ -5959,9 +5960,9 @@ serve(async (req) => {
       );
     }
 
-    if (!accessKeyId || !secretAccessKey || !sessionToken) {
+    if (!accessKeyId || !secretAccessKey) {
       return new Response(
-        JSON.stringify({ error: "Session credentials (accessKeyId, secretAccessKey, sessionToken) are required." }),
+        JSON.stringify({ error: "AWS credentials (accessKeyId and secretAccessKey) are required." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -5970,7 +5971,7 @@ serve(async (req) => {
       credentials: {
         accessKeyId: sanitizeString(accessKeyId, 128),
         secretAccessKey: sanitizeString(secretAccessKey, 256),
-        sessionToken: sanitizeString(sessionToken, 8192),
+        ...(sessionToken ? { sessionToken: sanitizeString(sessionToken, 8192) } : {}),
 
       },
       region,
