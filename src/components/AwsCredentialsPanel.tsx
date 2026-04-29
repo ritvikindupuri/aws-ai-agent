@@ -349,7 +349,7 @@ const AwsCredentialsPanel = ({ credentials, onSave, compact = false }: AwsCreden
                 <div className="flex items-center gap-2 px-2.5 py-2 bg-muted rounded border border-border">
                   <Lock className="w-3 h-3 text-primary flex-shrink-0" />
                   <p className="text-[10px] text-muted-foreground leading-tight">
-                    Raw keys are validated and, when AWS allows it, exchanged for temporary STS session tokens. If STS session creation is blocked, CloudPilot uses the validated key pair for this browser session so prompts can still run; raw keys are never stored unless Guardian Scheduling is enabled.
+                    Raw keys are validated and used only for this browser session so IAMFullAccess can attach per-service policies when a prompt needs them. Keys are never stored unless Guardian Scheduling is enabled.
                   </p>
                 </div>
 
