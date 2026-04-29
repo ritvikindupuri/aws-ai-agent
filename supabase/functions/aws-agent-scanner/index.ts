@@ -2270,6 +2270,8 @@ const AWS_V3_SERVICE_MAP: Record<string, string> = {
   "Route53": "route53",
   "ELBv2": "elastic-load-balancing-v2",
   "AutoScaling": "auto-scaling",
+  "CostExplorer": "cost-explorer",
+  "Budgets": "budgets",
 };
 
 const ALLOWED_AWS_SERVICES = new Set(Object.keys(AWS_V3_SERVICE_MAP));
