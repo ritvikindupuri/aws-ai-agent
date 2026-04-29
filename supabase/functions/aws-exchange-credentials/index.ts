@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { STSClient, GetCallerIdentityCommand, GetSessionTokenCommand, AssumeRoleCommand } from "https://esm.sh/@aws-sdk/client-sts@3.744.0";
+import { STSClient, GetCallerIdentityCommand, AssumeRoleCommand } from "https://esm.sh/@aws-sdk/client-sts@3.744.0";
 import { IAMClient, SimulatePrincipalPolicyCommand } from "https://esm.sh/@aws-sdk/client-iam@3.744.0";
 
 const corsHeaders = {
@@ -119,32 +119,16 @@ serve(async (req) => {
           expiration: new Date(Date.now() + 3600 * 1000).toISOString(),
         };
       } else {
-        try {
-          const sessionData = await sts.send(new GetSessionTokenCommand({ DurationSeconds: 3600 }));
-          if (!sessionData.Credentials?.AccessKeyId || !sessionData.Credentials?.SecretAccessKey || !sessionData.Credentials?.SessionToken || !sessionData.Credentials?.Expiration) {
-            throw new Error("Incomplete session credentials returned.");
-          }
-
-          tempCredentials = {
-            accessKeyId: sessionData.Credentials.AccessKeyId,
-            secretAccessKey: sessionData.Credentials.SecretAccessKey,
-            sessionToken: sessionData.Credentials.SessionToken,
-            expiration: sessionData.Credentials.Expiration.toISOString(),
-          };
-        } catch (stsErr: any) {
-          const stsErrorCode = stsErr?.Code || stsErr?.code || stsErr?.name || "UnknownError";
-          console.warn("[aws-exchange-credentials] GetSessionToken failed, using original credentials", {
-            stsErrorCode,
-            message: stsErr?.message || "Unknown STS error",
-          });
-
-          tempCredentials = {
-            accessKeyId,
-            secretAccessKey,
-            sessionToken: "",
-            expiration: new Date(Date.now() + 3600 * 1000).toISOString(),
-          };
-        }
+        // Do not call STS:GetSessionToken for long-term IAM user keys.
+        // AWS blocks IAM API operations from GetSessionToken credentials unless MFA
+        // auth is included, which prevents CloudPilot's IAMFullAccess-based
+        // auto-elevation from attaching per-service policies on demand.
+        tempCredentials = {
+          accessKeyId,
+          secretAccessKey,
+          sessionToken: "",
+          expiration: new Date(Date.now() + 3600 * 1000).toISOString(),
+        };
       }
     } else if (credentials.method === "assume_role") {
       const roleArn = sanitizeString(credentials.roleArn, 256);
